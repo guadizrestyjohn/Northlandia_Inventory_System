@@ -1,0 +1,17 @@
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Keep application source files out of the public URL space.
+    RewriteRule ^app/ - [F,L]
+
+    # Serve front-end assets from the public document directory.
+    RewriteRule ^(plugins|dist|css|js)/(.*)$ public/$1/$2 [L]
+
+    # Route application URLs through the MVC front controller.
+    RewriteRule ^$ public/index.php [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ public/index.php [L]
+</IfModule>

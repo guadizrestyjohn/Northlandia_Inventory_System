@@ -1,0 +1,1134 @@
+:root {
+    --north-primary: #0f2746;
+    --north-primary-2: #163b63;
+    --north-accent: #1f73be;
+    --north-accent-soft: #eaf4ff;
+    --north-bg: #f4f7fb;
+    --north-surface: #ffffff;
+    --north-border: rgba(17, 28, 45, 0.08);
+    --north-text: #10233d;
+    --north-muted: #64748b;
+    --north-sidebar: #091b2d;
+    --north-sidebar-alt: #122947;
+    --north-success: #27ae60;
+    --north-warning: #f7b731;
+    --north-danger: #e74c3c;
+    --north-info: #43a4e6;
+    --north-shadow: 0 18px 30px rgba(15, 39, 70, 0.08);
+    --north-radius: 18px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    background: var(--north-bg);
+    color: var(--north-text);
+    font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+body.northlandia-auth {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #091b2d 0%, #12355d 50%, #1d4c7d 100%);
+    padding: 30px 18px;
+}
+
+img,
+canvas {
+    max-width: 100%;
+}
+
+a {
+    text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+.btn,
+.form-control,
+.custom-select,
+.form-select,
+textarea,
+input {
+    border-radius: 12px !important;
+}
+
+.btn {
+    transition: all 0.2s ease;
+    font-weight: 600;
+    border-radius: 12px !important;
+}
+
+.btn-north-primary,
+.btn-north-success,
+.btn-north-secondary,
+.btn-north-warning,
+.btn-north-danger,
+.btn-north-ghost,
+.btn-north-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 12px;
+    font-weight: 600;
+    padding: 0.7rem 1rem;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.btn-north-primary {
+    background: var(--north-accent);
+    color: #fff;
+    box-shadow: 0 12px 22px rgba(31, 115, 190, 0.18);
+}
+
+.btn-north-primary:hover,
+.btn-north-primary:focus {
+    background: #165fa1;
+    color: #fff;
+}
+
+.btn-north-success {
+    background: var(--north-success);
+    color: #fff;
+}
+
+.btn-north-success:hover,
+.btn-north-success:focus {
+    background: #20985c;
+    color: #fff;
+}
+
+.btn-north-secondary {
+    background: #e6edf7;
+    color: var(--north-primary);
+}
+
+.btn-north-secondary:hover,
+.btn-north-secondary:focus {
+    background: #dfeaf8;
+    color: var(--north-primary);
+}
+
+.btn-north-warning {
+    background: var(--north-warning);
+    color: #1c1c1c;
+}
+
+.btn-north-warning:hover,
+.btn-north-warning:focus {
+    background: #efae0d;
+    color: #1c1c1c;
+}
+
+.btn-north-danger {
+    background: var(--north-danger);
+    color: #fff;
+}
+
+.btn-north-danger:hover,
+.btn-north-danger:focus {
+    background: #d84a3d;
+    color: #fff;
+}
+
+.btn-north-ghost {
+    background: #eef3fb;
+    color: var(--north-primary);
+}
+
+.btn-north-ghost:hover,
+.btn-north-ghost:focus {
+    background: #e3ebf8;
+    color: var(--north-primary);
+}
+
+.btn-north-outline {
+    background: #fff;
+    border-color: rgba(15, 39, 70, 0.12);
+    color: var(--north-primary);
+}
+
+.btn-north-outline:hover,
+.btn-north-outline:focus {
+    background: var(--north-accent-soft);
+    border-color: rgba(31, 115, 190, 0.25);
+    color: var(--north-accent);
+}
+
+.north-shell {
+    display: flex;
+    min-height: 100vh;
+    background: var(--north-bg);
+}
+
+.north-sidebar {
+    width: 270px;
+    background: linear-gradient(180deg, var(--north-sidebar) 0%, var(--north-sidebar-alt) 100%);
+    color: #fff;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+}
+
+.north-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 22px 20px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.north-brand-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    background: rgba(31, 115, 190, 0.22);
+    color: #fff;
+    font-size: 1.1rem;
+}
+
+.north-brand-copy {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+}
+
+.north-brand-title {
+    font-size: 0.8rem;
+    letter-spacing: 0.16em;
+    font-weight: 800;
+}
+
+.north-brand-subtitle {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.74);
+    margin-top: 4px;
+}
+
+.north-nav {
+    padding: 18px 12px 24px;
+}
+
+.north-nav-section {
+    margin-bottom: 12px;
+}
+
+.north-nav-label {
+    padding: 10px 14px 8px;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.52);
+    font-weight: 700;
+}
+
+.north-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 0.8rem 0.9rem;
+    margin-bottom: 4px;
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.82);
+    background: transparent;
+    transition: all 0.2s ease;
+    font-weight: 600;
+}
+
+.north-nav-link:hover,
+.north-nav-link:focus {
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+}
+
+.north-nav-link.active {
+    background: linear-gradient(90deg, rgba(31, 115, 190, 0.38), rgba(31, 115, 190, 0.12));
+    color: #fff;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.north-nav-link i {
+    width: 16px;
+    text-align: center;
+    font-size: 0.95rem;
+}
+
+.north-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.north-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 28px;
+    background: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid var(--north-border);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.north-topbar-left,
+.north-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.north-sidebar-toggle {
+    width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--north-border);
+    background: #fff;
+    color: var(--north-primary);
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+.north-page-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--north-primary);
+    font-weight: 700;
+    background: rgba(31, 115, 190, 0.06);
+    border: 1px solid rgba(31, 115, 190, 0.12);
+    padding: 0.7rem 0.9rem;
+    border-radius: 12px;
+}
+
+.north-user-pill {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0.5rem 0.8rem;
+    border: 1px solid var(--north-border);
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 14px;
+}
+
+.north-user-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--north-accent), #4aa3ef);
+    color: #fff;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.north-user-name {
+    font-weight: 700;
+    color: var(--north-primary);
+    line-height: 1.2;
+}
+
+.north-user-role {
+    font-size: 0.73rem;
+    color: var(--north-muted);
+}
+
+.north-logout-form {
+    margin: 0;
+}
+
+.north-content {
+    flex: 1;
+    padding: 26px 26px 8px;
+}
+
+.north-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 16px 28px 18px;
+    color: var(--north-muted);
+    font-size: 0.82rem;
+    border-top: 1px solid var(--north-border);
+    background: rgba(255, 255, 255, 0.75);
+}
+
+.north-content-inner {
+    max-width: 1500px;
+    margin: 0 auto;
+}
+
+.north-page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 22px;
+}
+
+.north-kicker {
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--north-accent);
+    margin-bottom: 8px;
+}
+
+.north-page-header h2 {
+    margin: 0;
+    color: var(--north-primary);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+}
+
+.north-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.north-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+.north-dashboard-row {
+    row-gap: 1.5rem;
+}
+
+.north-stat-card {
+    display: block;
+    padding: 1.2rem 1.2rem 1rem;
+    border-radius: var(--north-radius);
+    color: #fff;
+    box-shadow: var(--north-shadow);
+    border: none;
+    position: relative;
+    overflow: hidden;
+    min-height: 170px;
+}
+
+.north-stat-card::after {
+    content: "";
+    position: absolute;
+    right: -30px;
+    bottom: -18px;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.north-stat-primary {
+    background: linear-gradient(135deg, #1d5d97 0%, #1f73be 100%);
+}
+
+.north-stat-success {
+    background: linear-gradient(135deg, #1d9a5e 0%, #27ae60 100%);
+}
+
+.north-stat-warning {
+    background: linear-gradient(135deg, #d38f0c 0%, #f7b731 100%);
+}
+
+.north-stat-danger {
+    background: linear-gradient(135deg, #d64d4d 0%, #e74c3c 100%);
+}
+
+.north-stat-header {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.3rem;
+}
+
+.north-stat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.12);
+    font-size: 1.2rem;
+}
+
+.north-stat-trend {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    font-size: 0.85rem;
+}
+
+.north-stat-value {
+    position: relative;
+    z-index: 1;
+    font-size: clamp(2rem, 2vw, 2.5rem);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    margin: 0 0 0.25rem;
+}
+
+.north-stat-label {
+    position: relative;
+    z-index: 1;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 600;
+}
+
+.north-card {
+    background: var(--north-surface);
+    border: 1px solid var(--north-border);
+    border-radius: var(--north-radius);
+    box-shadow: var(--north-shadow);
+    overflow: hidden;
+}
+
+.north-card-header {
+    padding: 1.1rem 1.2rem 0.9rem;
+    border-bottom: 1px solid var(--north-border);
+    background: rgba(15, 39, 70, 0.015);
+}
+
+.north-card-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--north-primary);
+}
+
+.north-card-body {
+    padding: 1.2rem;
+}
+
+.north-chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 320px;
+}
+
+.north-chart-wrap-small {
+    height: 260px;
+}
+
+.north-empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 140px;
+    border: 1px dashed var(--north-border);
+    border-radius: 16px;
+    background: #fafcfe;
+    color: var(--north-muted);
+    font-weight: 600;
+    text-align: center;
+    padding: 18px;
+}
+
+.north-action-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.north-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+}
+
+.north-table thead th {
+    background: #f8fafc;
+    color: var(--north-primary);
+    font-weight: 700;
+    padding: 0.85rem 0.9rem;
+    border-bottom: 1px solid var(--north-border);
+    text-align: left;
+}
+
+.north-table tbody td {
+    padding: 0.85rem 0.9rem;
+    border-bottom: 1px solid var(--north-border);
+    vertical-align: middle;
+}
+
+.north-table tbody tr:hover {
+    background: rgba(31, 115, 190, 0.02);
+}
+
+.north-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    border: 1px solid rgba(100, 116, 139, 0.16);
+    min-width: 100px;
+    background: rgba(100, 116, 139, 0.08);
+    color: #64748b;
+}
+
+.north-badge-processing {
+    background: rgba(31, 115, 190, 0.08);
+    color: var(--north-accent);
+    border-color: rgba(31, 115, 190, 0.12);
+}
+
+.north-badge-pending,
+.north-badge-warning {
+    background: rgba(247, 183, 49, 0.14);
+    color: #9a6b00;
+    border-color: rgba(247, 183, 49, 0.18);
+}
+
+.north-badge-ready-for-release,
+.north-badge-ready-for-stock-out {
+    background: rgba(238, 139, 45, 0.13);
+    color: #a95708;
+    border-color: rgba(238, 139, 45, 0.2);
+}
+
+.north-badge-recorded {
+    background: rgba(31, 115, 190, 0.08);
+    color: var(--north-accent);
+    border-color: rgba(31, 115, 190, 0.12);
+}
+
+.north-badge-approved,
+.north-badge-completed,
+.north-badge-stock-in,
+.north-badge-available {
+    background: rgba(39, 174, 96, 0.11);
+    color: var(--north-success);
+    border-color: rgba(39, 174, 96, 0.15);
+}
+
+.north-badge-rejected,
+.north-badge-cancelled,
+.north-badge-stock-out,
+.north-badge-out-of-stock {
+    background: rgba(231, 76, 60, 0.1);
+    color: var(--north-danger);
+    border-color: rgba(231, 76, 60, 0.12);
+}
+
+.north-badge-released {
+    background: rgba(126, 87, 194, 0.12);
+    color: #6741a5;
+    border-color: rgba(126, 87, 194, 0.2);
+}
+
+.north-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.north-feed-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--north-border);
+}
+
+.north-feed-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.north-feed-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.8rem;
+    color: #fff;
+}
+
+.north-feed-icon-stock-in {
+    background: linear-gradient(135deg, #2bb673, #3ad28b);
+}
+
+.north-feed-icon-stock-out {
+    background: linear-gradient(135deg, #e85d4a, #f07b6a);
+}
+
+.north-feed-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.north-feed-copy strong {
+    color: var(--north-primary);
+    font-weight: 700;
+}
+
+.north-feed-copy span,
+.north-feed-copy small {
+    color: var(--north-muted);
+}
+
+.north-auth-shell {
+    max-width: 460px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 24px;
+    box-shadow: 0 28px 60px rgba(7, 16, 28, 0.28);
+    padding: 24px;
+}
+
+.north-auth-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 22px;
+    color: var(--north-primary);
+}
+
+.north-auth-brand-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--north-primary), var(--north-accent));
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+}
+
+.north-auth-brand-copy {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+}
+
+.north-auth-brand-title {
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    font-size: 0.82rem;
+}
+
+.north-auth-brand-subtitle {
+    color: var(--north-muted);
+    font-size: 0.72rem;
+}
+
+.north-auth-card {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.north-auth-card .card-title,
+.north-auth-card h3 {
+    color: var(--north-primary);
+    font-weight: 800;
+    margin-bottom: 10px;
+}
+
+.north-auth-form .form-control {
+    border: 1px solid rgba(15, 39, 70, 0.12);
+    background: #ffffff;
+    padding: 0.9rem 1rem;
+    color: var(--north-primary);
+}
+
+.north-auth-form .form-control:focus {
+    border-color: rgba(31, 115, 190, 0.45);
+    box-shadow: 0 0 0 4px rgba(31, 115, 190, 0.08);
+}
+
+.north-auth-form .btn-primary {
+    width: 100%;
+    border-radius: 12px;
+    padding: 0.82rem 1rem;
+    background: var(--north-accent);
+    border-color: var(--north-accent);
+}
+
+.north-auth-form .btn-primary:hover,
+.north-auth-form .btn-primary:focus {
+    background: #155d9f;
+    border-color: #155d9f;
+}
+
+.north-auth-alert {
+    margin-bottom: 1rem;
+    border-radius: 12px;
+    padding: 0.8rem 0.9rem;
+    background: rgba(231, 76, 60, 0.08);
+    border: 1px solid rgba(231, 76, 60, 0.12);
+    color: #a3322d;
+    font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+    .north-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 980px) {
+    .north-shell {
+        display: block;
+    }
+
+    .north-sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+    }
+
+    .north-topbar {
+        padding: 16px 18px;
+    }
+
+    .north-content {
+        padding: 18px;
+    }
+}
+
+@media (max-width: 720px) {
+    .north-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .north-page-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .north-topbar,
+    .north-topbar-left,
+    .north-topbar-right {
+        flex-wrap: wrap;
+    }
+
+    .north-topbar-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .north-user-pill {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+body.north-sidebar-collapsed .north-sidebar {
+    width: 86px;
+}
+
+body.north-sidebar-collapsed .north-brand-copy,
+body.north-sidebar-collapsed .north-nav-label,
+body.north-sidebar-collapsed .north-nav-link span,
+body.north-sidebar-collapsed .north-page-tag span,
+body.north-sidebar-collapsed .north-user-role,
+body.north-sidebar-collapsed .north-user-name {
+    display: none;
+}
+
+body.north-sidebar-collapsed .north-nav-link {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+body.north-sidebar-collapsed .north-brand {
+    justify-content: center;
+}
+
+body.north-sidebar-collapsed .north-user-pill {
+    padding: 0.5rem;
+}
+
+@media (max-width: 980px) {
+    body.north-sidebar-collapsed .north-sidebar {
+        width: 100%;
+    }
+
+    body.north-sidebar-collapsed .north-nav {
+        display: none;
+    }
+
+    body.north-sidebar-collapsed .north-brand-copy {
+        display: flex;
+    }
+
+    body.north-sidebar-collapsed .north-page-tag span {
+        display: inline;
+    }
+
+    body.north-sidebar-collapsed .north-user-name,
+    body.north-sidebar-collapsed .north-user-role {
+        display: block;
+    }
+}
+
+@media (max-width: 980px) {
+    .north-sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+    }
+
+    .north-nav {
+        display: none;
+    }
+
+    body.north-sidebar-collapsed .north-sidebar .north-nav {
+        display: block;
+    }
+
+    body.north-sidebar-collapsed .north-page-tag span {
+        display: inline;
+    }
+
+    body.north-sidebar-collapsed .north-brand-copy {
+        display: flex;
+    }
+
+    body.north-sidebar-collapsed .north-user-name,
+    body.north-sidebar-collapsed .north-user-role {
+        display: block;
+    }
+
+    .north-main,
+    .north-content,
+    .north-content-inner,
+    .card,
+    .card-body,
+    .table-responsive,
+    .dataTables_wrapper {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .table-responsive {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .dataTables_wrapper .row {
+        margin-right: 0;
+        margin-left: 0;
+    }
+
+    .dataTables_wrapper .dataTables_length,
+    .dataTables_wrapper .dataTables_filter {
+        max-width: 100%;
+    }
+
+    .dataTables_wrapper .dataTables_filter label {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .dataTables_wrapper .dataTables_filter input {
+        max-width: 100%;
+        margin-left: 0;
+    }
+
+    .dataTables_wrapper .dataTables_paginate {
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    .dataTables_wrapper .pagination {
+        flex-wrap: wrap;
+    }
+
+    .north-chart-wrap {
+        min-width: 0;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .north-topbar {
+        align-items: flex-start;
+        padding: 12px;
+        gap: 10px;
+    }
+
+    .north-topbar-left,
+    .north-topbar-right {
+        min-width: 0;
+        gap: 8px;
+    }
+
+    .north-topbar-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .north-page-tag {
+        min-width: 0;
+        padding: 0.6rem 0.7rem;
+    }
+
+    .north-user-pill {
+        width: auto;
+        min-width: 0;
+        justify-content: flex-start;
+    }
+
+    .north-content {
+        padding: 14px 12px 8px;
+    }
+
+    .north-page-header {
+        width: 100%;
+        align-items: stretch;
+    }
+
+    .north-dashboard-row {
+        margin-right: 0;
+        margin-left: 0;
+    }
+
+    .north-page-header h2 {
+        overflow-wrap: anywhere;
+    }
+
+    .north-header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .north-header-actions .btn {
+        max-width: 100%;
+        white-space: normal;
+    }
+
+    .north-card-body,
+    .card > .card-body {
+        min-width: 0;
+    }
+
+    .modal-dialog,
+    .modal-dialog.modal-lg {
+        width: auto;
+        max-width: none;
+        margin: 0.5rem;
+    }
+
+    .modal-body {
+        max-height: calc(100vh - 150px);
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .modal-footer {
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .modal-footer > * {
+        margin: 0;
+    }
+
+    .form-control,
+    .custom-select,
+    .modal-content {
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .north-topbar {
+        padding: 10px;
+    }
+
+    .north-content {
+        padding-right: 10px;
+        padding-left: 10px;
+    }
+
+    .north-sidebar-toggle {
+        flex: 0 0 42px;
+    }
+
+    .north-page-tag {
+        gap: 7px;
+        padding: 0.55rem 0.6rem;
+        font-size: 0.9rem;
+    }
+
+    .north-user-avatar {
+        flex: 0 0 38px;
+    }
+
+    .north-stats-grid {
+        gap: 12px;
+    }
+
+    .north-card-body,
+    .card > .card-body {
+        padding: 1rem;
+    }
+
+    .modal-dialog,
+    .modal-dialog.modal-lg {
+        margin: 0.35rem;
+    }
+
+    .modal-footer .btn {
+        max-width: 100%;
+        white-space: normal;
+    }
+}
