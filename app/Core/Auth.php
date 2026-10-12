@@ -11,7 +11,7 @@ class Auth{
         'Manager' => [
             'dashboard.view', 'customers.view', 'orders.view', 'orders.payment', 'job_orders.view',
             'inventory.view', 'stock.view', 'stock.out', 'records.view', 'records.manage',
-            'reports.view',
+            'reports.view', 'tax_settings.manage',
         ],
         'Sales Staff' => [
             'dashboard.view', 'customers.view', 'customers.manage',

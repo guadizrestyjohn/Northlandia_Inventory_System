@@ -59,8 +59,8 @@ const JobOrdersModule = (function () {
         e.preventDefault();
 
         resetAddForm();
-
         $(s.addModal).modal('show');
+        loadEligibleOrders();
     }
 
     function resetAddForm() {
@@ -71,10 +71,65 @@ const JobOrdersModule = (function () {
         }
     }
 
+    function loadEligibleOrders() {
+        const select = $('#job-order-order-id');
+        const submitButton = $(s.addForm).find('[type="submit"]');
+        if (!select.length) return;
+
+        select.prop('disabled', true).empty()
+            .append($('<option>').val('').text('Loading Orders…'));
+        submitButton.prop('disabled', true);
+
+        $.ajax({
+            url: `${base_url}/api/JobOrders/eligibleOrders`,
+            method: 'GET',
+            dataType: 'json'
+        })
+            .done(function (response) {
+                if (response && response.status === 'error') {
+                    window.apiData(response);
+                    select.empty().append($('<option>').val('').text('Orders could not be loaded'));
+                    return;
+                }
+
+                const orders = window.apiData(response);
+                select.empty().append($('<option>').val('').text('Select Order'));
+                orders.forEach(function (order) {
+                    const label = [
+                        window.formatOrderNumber(order.order_id),
+                        order.customer_name || '',
+                        order.product_name || ''
+                    ].join(' — ');
+                    select.append($('<option>').val(order.order_id).text(label));
+                });
+                if (orders.length === 0) {
+                    select.find('option').first().text('No eligible Pending Orders');
+                }
+                select.prop('disabled', false);
+                submitButton.prop('disabled', orders.length === 0);
+            })
+            .fail(function (xhr) {
+                handleAjaxError(xhr);
+                select.empty().append($('<option>').val('').text('Orders could not be loaded'));
+            })
+            .always(function () {
+                if (select.find('option').length && select.find('option').first().text() === 'Orders could not be loaded') {
+                    select.prop('disabled', true);
+                }
+                if (select.prop('disabled')) submitButton.prop('disabled', true);
+            });
+    }
+
     function submitAddForm(e) {
         e.preventDefault();
 
         const form = this;
+        const selectedOrderId = String($(form).find('[name="order_id"]').val() || '');
+        if (!selectedOrderId) {
+            showMessage('Please select a valid order.');
+            return;
+        }
+        const submitButton = $(form).find('[type="submit"]').prop('disabled', true);
 
         $.ajax({
             url: `${base_url}/api/JobOrders/add`,
@@ -84,16 +139,28 @@ const JobOrdersModule = (function () {
             contentType: false
         })
             .done(function (response) {
+                if (!window.isApiSuccess(response)) {
+                    showMessage(response && response.message ? response.message : 'Unable to create Job Order.');
+                    return;
+                }
+                $('#job-order-order-id option').filter(function () {
+                    return String(this.value) === selectedOrderId;
+                }).remove();
                 showMessage(
                     response.message || 'Job Order created.'
                 );
 
                 $(s.addModal).modal('hide');
-
                 table.ajax.reload(null, false);
+                loadEligibleOrders();
             })
             .fail(function (xhr) {
                 handleAjaxError(xhr);
+            })
+            .always(function (response) {
+                if (!window.isApiSuccess(response)) {
+                    submitButton.prop('disabled', false);
+                }
             });
     }
 
@@ -229,6 +296,10 @@ const JobOrdersModule = (function () {
             contentType: false
         })
             .done(function (response) {
+                if (!window.isApiSuccess(response)) {
+                    showMessage(response && response.message ? response.message : 'Unable to update Job Order.');
+                    return;
+                }
                 showMessage(
                     response.message || 'Job Order updated.'
                 );
@@ -316,7 +387,7 @@ const JobOrdersModule = (function () {
         table = tableElement.DataTable({
             ajax: {
                 url: `${base_url}/api/JobOrders/all`,
-                dataSrc: 'data',
+                dataSrc: window.apiData,
                 error: handleAjaxError
             },
 

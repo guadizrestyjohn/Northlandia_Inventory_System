@@ -44,6 +44,7 @@ unset($_SESSION['success'], $_SESSION['error']);
                         <th>Quantity</th>
                         <th>Specifications</th>
                         <th>Order Total</th>
+                        <th>Tax Details</th>
                         <th>Downpayment</th>
                         <th>Delivery</th>
                         <th>Status</th>
@@ -80,6 +81,10 @@ unset($_SESSION['success'], $_SESSION['error']);
                 <dl class="row mb-4">
                     <dt class="col-sm-4">Order Total</dt>
                     <dd class="col-sm-8" id="order-payment-total">—</dd>
+                    <dt class="col-sm-4">Amount Before Tax</dt>
+                    <dd class="col-sm-8" id="order-payment-subtotal">—</dd>
+                    <dt class="col-sm-4" id="order-payment-tax-label">Tax</dt>
+                    <dd class="col-sm-8" id="order-payment-tax">—</dd>
                     <dt class="col-sm-4">Downpayment</dt>
                     <dd class="col-sm-8" id="order-payment-downpayment">—</dd>
                     <dt class="col-sm-4">Total Paid</dt>
@@ -292,8 +297,8 @@ unset($_SESSION['success'], $_SESSION['error']);
 
                 <div class="form-group">
 
-                    <label for="order-total">
-                        Order Total
+                    <label for="order-total" id="order-total-label">
+                        Agreed Order Total
                     </label>
 
                     <input
@@ -305,11 +310,24 @@ unset($_SESSION['success'], $_SESSION['error']);
                         step="0.01"
                         required
                     >
-                    <small class="form-text text-muted">
+                    <small class="form-text text-muted" id="order-total-help">
                         Enter the agreed Order Total. This project has no product price catalog to calculate it automatically.
                     </small>
 
                 </div>
+
+                <div class="border rounded p-3 mb-3 d-none" id="order-tax-preview">
+                    <strong>Tax Calculation Preview</strong>
+                    <dl class="row mb-0 mt-2">
+                        <dt class="col-sm-6">Amount Before Tax</dt>
+                        <dd class="col-sm-6" id="order-preview-subtotal">—</dd>
+                        <dt class="col-sm-6" id="order-preview-tax-label">Tax</dt>
+                        <dd class="col-sm-6" id="order-preview-tax">—</dd>
+                        <dt class="col-sm-6">Final Order Total</dt>
+                        <dd class="col-sm-6 font-weight-bold" id="order-preview-total">—</dd>
+                    </dl>
+                </div>
+                <div class="alert alert-warning d-none" id="order-tax-warning" role="alert"></div>
 
 
                 <!-- Downpayment -->

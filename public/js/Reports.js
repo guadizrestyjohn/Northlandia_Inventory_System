@@ -147,13 +147,7 @@ const ReportsModule = (function () {
                     });
                 },
                 dataSrc: function (response) {
-                    if (!response || !response.success || !Array.isArray(response.data)) {
-                        window.showMessage(response && response.message
-                            ? response.message
-                            : 'Unable to load this report right now.');
-                        return [];
-                    }
-                    return response.data;
+                    return window.apiData(response);
                 },
                 error: window.handleAjaxError
             },

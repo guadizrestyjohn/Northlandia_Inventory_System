@@ -19,7 +19,7 @@ class StockController extends BaseApiController
     {
         $this->requirePermission('stock.view');
         $this->requireGet();
-        $this->respond(['success' => true, 'transactions' => $this->Transactions->find()]);
+        $this->respond(['data' => $this->Transactions->find()]);
     }
 
     public function stockIn(): void
@@ -28,9 +28,7 @@ class StockController extends BaseApiController
         $this->requirePost();
         $user = Auth::user() ?? [];
         $result = $this->Transactions->process('Stock In', $_POST, isset($user['id']) ? (int) $user['id'] : null);
-        $status = $result['status'] ?? (empty($result['success']) ? 422 : 200);
-        unset($result['status']);
-        $this->respond($result, $status);
+        $this->respondResult($result);
     }
 
     public function stockOut(): void
@@ -39,8 +37,6 @@ class StockController extends BaseApiController
         $this->requirePost();
         $user = Auth::user() ?? [];
         $result = $this->Transactions->process('Stock Out', $_POST, isset($user['id']) ? (int) $user['id'] : null);
-        $status = $result['status'] ?? (empty($result['success']) ? 422 : 200);
-        unset($result['status']);
-        $this->respond($result, $status);
+        $this->respondResult($result);
     }
 }

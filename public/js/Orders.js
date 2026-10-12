@@ -26,6 +26,10 @@ const OrdersModule = (function () {
         status: '#order-status',
         statusPreserved: '#order-status-preserved',
         statusHelp: '#order-status-help',
+        totalLabel: '#order-total-label',
+        totalHelp: '#order-total-help',
+        taxPreview: '#order-tax-preview',
+        taxWarning: '#order-tax-warning',
         paymentOrderId: '#order-payment-order-id',
         paymentAmount: '#order-payment-amount',
         paymentSave: '#order-payment-save'
@@ -33,6 +37,7 @@ const OrdersModule = (function () {
 
     let customerSearchRequest = null;
     let customerSearchTimer = null;
+    let currentTaxConfiguration = null;
 
     function init() {
         bindEvents();
@@ -54,6 +59,7 @@ const OrdersModule = (function () {
         $(s.paymentForm).on('submit', submitPayment);
         $(s.modal).on('hidden.bs.modal', resetForm);
         $(s.customerSearch).on('input', searchCustomers);
+        $(s.orderTotal).on('input', updateTaxPreview);
         $(s.customer).on('change', function () {
             const option = this.options[this.selectedIndex];
             const selectedCustomer = $(this).val();
@@ -87,6 +93,7 @@ const OrdersModule = (function () {
         $(s.statusHelp).text('New orders start as Pending.');
 
         loadDefaultCustomers();
+        loadTaxConfiguration();
         $(s.modal).modal('show');
     }
 
@@ -101,11 +108,14 @@ const OrdersModule = (function () {
             dataType: 'json'
         })
             .done((res) => {
-                if (!res || !res.success || !res.order) {
+                if (!res || res.status === 'error' || !res.order_id) {
+                    if (res && res.status === 'error') {
+                        showMessage(res.message || 'Unable to load order.');
+                    }
                     return;
                 }
 
-                fillOrder(res.order);
+                fillOrder(res);
 
                 $(s.modalTitle).text('Edit Order');
                 $(s.saveBtn).text('Update Order');
@@ -123,7 +133,28 @@ const OrdersModule = (function () {
         $(s.product).val(order.product_name || '');
         $(s.quantity).val(window.formatQuantity(order.quantity));
         $(s.specifications).val(order.specifications || '');
-        $(s.orderTotal).val(order.order_total || 0);
+        const hasTaxSnapshot = order.tax_name_snapshot != null
+            && order.tax_rate_snapshot != null
+            && order.tax_amount_snapshot != null
+            && order.subtotal_before_tax_snapshot != null
+            && order.tax_calculation_mode_snapshot != null;
+        if (hasTaxSnapshot) {
+            configureTaxPreview({
+                tax_name: order.tax_name_snapshot,
+                tax_rate: String(order.tax_rate_snapshot),
+                calculation_mode: order.tax_calculation_mode_snapshot
+            });
+            $(s.orderTotal).val(order.tax_calculation_mode_snapshot === 'Exclusive'
+                ? order.subtotal_before_tax_snapshot
+                : order.order_total);
+            updateTaxPreview();
+        } else {
+            currentTaxConfiguration = null;
+            $(s.taxPreview).addClass('d-none');
+            $(s.orderTotal).val(order.order_total || 0);
+            $(s.totalLabel).text('Order Total');
+            $(s.totalHelp).text('Legacy Order total. Historical Orders are not recalculated using current Tax Settings.');
+        }
         $(s.downpayment).val(order.downpayment || 0);
         $(s.downpayment).prop('readonly', true);
         $(s.delivery).val(order.delivery_method || '');
@@ -152,6 +183,8 @@ const OrdersModule = (function () {
             );
         }
 
+        $(s.saveBtn).prop('disabled', false);
+
         $(s.product).trigger('focus');
     }
 
@@ -159,6 +192,11 @@ const OrdersModule = (function () {
         e.preventDefault();
 
         const id = $(s.id).val();
+        if (!id && !currentTaxConfiguration) {
+            e.preventDefault();
+            showMessage('An active tax configuration is required before creating an Order.');
+            return;
+        }
         const fd = new FormData(e.target);
 
         if ($(s.statusPreserved).val()) {
@@ -182,11 +220,10 @@ const OrdersModule = (function () {
                     res.message || 'Order saved successfully.'
                 );
 
-                if (res.success) {
-                    loadOrders();
-                    $(s.modal).modal('hide');
-                    resetForm();
-                }
+                if (!window.isApiSuccess(res)) return;
+                loadOrders();
+                $(s.modal).modal('hide');
+                resetForm();
             })
             .fail((xhr) => {
                 handleAjaxError(xhr);
@@ -206,7 +243,7 @@ const OrdersModule = (function () {
             ajax: {
                 url: `${base_url}/api/Orders/all`,
                 type: 'GET',
-                dataSrc: 'orders',
+                dataSrc: window.apiData,
                 error: handleAjaxError
             },
 
@@ -234,6 +271,15 @@ const OrdersModule = (function () {
                 {
                     data: 'order_total',
                     render: formatMoney
+                },
+                {
+                    data: null,
+                    render: (_value, type, order) => window.renderTableText(
+                        order.tax_name_snapshot == null
+                            ? '—'
+                            : `${order.tax_name_snapshot} ${Number(order.tax_rate_snapshot).toFixed(2)}%: ${formatMoney(order.tax_amount_snapshot)}`,
+                        type
+                    )
                 },
                 {
                     data: 'downpayment',
@@ -286,11 +332,11 @@ const OrdersModule = (function () {
             dataType: 'json'
         })
             .done((response) => {
-                if (!response || !response.success) {
+                if (!window.isApiSuccess(response) || !response.data) {
                     showMessage(response && response.message ? response.message : 'Unable to load payment details.');
                     return;
                 }
-                renderPaymentDetails(response);
+                renderPaymentDetails(response.data);
                 $(s.paymentsModal).modal('show');
             })
             .fail((xhr) => {
@@ -309,6 +355,18 @@ const OrdersModule = (function () {
         );
         $('#order-payment-total').text(formatMoney(summary.order_total));
         $('#order-payment-downpayment').text(formatMoney(summary.downpayment));
+        const taxName = order.tax_name_snapshot;
+        if (taxName != null) {
+            $('#order-payment-subtotal').text(formatMoney(order.subtotal_before_tax_snapshot));
+            $('#order-payment-tax-label').text(
+                `${taxName} (${Number(order.tax_rate_snapshot).toFixed(2)}%)`
+            );
+            $('#order-payment-tax').text(formatMoney(order.tax_amount_snapshot));
+        } else {
+            $('#order-payment-subtotal').text('Not recorded for this Order');
+            $('#order-payment-tax-label').text('Tax');
+            $('#order-payment-tax').text('Not recorded');
+        }
         $('#order-payment-paid').text(formatMoney(summary.total_paid));
         $('#order-payment-remaining').text(
             orderTotal > 0 ? formatMoney(Math.max(remaining, 0)) : 'Order Total required'
@@ -357,10 +415,11 @@ const OrdersModule = (function () {
             dataType: 'json'
         })
             .done((response) => {
-                showMessage(response.message || 'Payment recorded.');
-                if (!response.success) {
+                if (!window.isApiSuccess(response)) {
+                    showMessage(response.message || 'Unable to record payment.');
                     return;
                 }
+                showMessage(response.message || 'Payment recorded.');
                 loadOrders();
                 loadPaymentDetails(orderId);
             })
@@ -405,6 +464,91 @@ const OrdersModule = (function () {
 
         $(s.saveBtn).text('Save Order');
         $(s.modalTitle).text('Add Order');
+        $(s.saveBtn).prop('disabled', false);
+        $(s.taxWarning).addClass('d-none').text('');
+        $(s.taxPreview).addClass('d-none');
+        currentTaxConfiguration = null;
+    }
+
+    function loadTaxConfiguration() {
+        currentTaxConfiguration = null;
+        $(s.saveBtn).prop('disabled', true);
+        $(s.taxWarning).addClass('d-none').text('');
+        $.ajax({
+            url: `${base_url}/api/Orders/taxConfiguration`,
+            method: 'GET',
+            dataType: 'json'
+        })
+            .done(function (response) {
+                if (!window.isApiSuccess(response) || !response.data) {
+                    const message = response && response.message
+                        ? response.message
+                        : 'No valid active tax configuration is available.';
+                    $(s.taxWarning).removeClass('d-none').text(message);
+                    showMessage(message);
+                    return;
+                }
+                configureTaxPreview(response.data);
+                $(s.saveBtn).prop('disabled', false);
+            })
+            .fail(function (xhr) {
+                const response = xhr && xhr.responseJSON;
+                const message = response && response.message
+                    ? response.message
+                    : 'Tax Settings could not be loaded. An active tax configuration is required to create an Order.';
+                $(s.taxWarning).removeClass('d-none').text(message);
+                showMessage(message);
+            });
+    }
+
+    function configureTaxPreview(configuration) {
+        currentTaxConfiguration = configuration;
+        const mode = configuration.calculation_mode;
+        $(s.totalLabel).text(mode === 'Exclusive'
+            ? `Agreed Subtotal (before ${configuration.tax_name})`
+            : `Agreed Order Total (${configuration.tax_name} inclusive)`);
+        $(s.totalHelp).text(mode === 'Exclusive'
+            ? `Enter the agreed subtotal before ${configuration.tax_name}. Tax will be added to calculate the final payable Order Total.`
+            : `Enter the final agreed Order Total, including ${configuration.tax_name}. The tax portion will be shown below.`);
+        updateTaxPreview();
+        $(s.taxPreview).removeClass('d-none');
+    }
+
+    function updateTaxPreview() {
+        if (!currentTaxConfiguration) return;
+        const amount = String($(s.orderTotal).val() || '').trim();
+        const match = amount.match(/^(?:0|[1-9]\d{0,7})(?:\.(\d{1,2}))?$/);
+        const rateMatch = String(currentTaxConfiguration.tax_rate).match(/^(\d{1,3})(?:\.(\d{1,2}))?$/);
+        if (!match || !rateMatch) {
+            $('#order-preview-subtotal, #order-preview-tax, #order-preview-total').text('Enter a valid amount');
+            return;
+        }
+        const amountParts = amount.split('.');
+        const amountCents = Number(amountParts[0]) * 100 + Number((amountParts[1] || '').padEnd(2, '0'));
+        const rateParts = String(currentTaxConfiguration.tax_rate).split('.');
+        const rateBps = Number(rateParts[0]) * 100 + Number((rateParts[1] || '').padEnd(2, '0'));
+        if (amountCents <= 0) {
+            $('#order-preview-subtotal, #order-preview-tax, #order-preview-total').text('Enter a valid amount');
+            return;
+        }
+        let subtotalCents;
+        let taxCents;
+        let totalCents;
+        if (currentTaxConfiguration.calculation_mode === 'Exclusive') {
+            subtotalCents = amountCents;
+            taxCents = Math.floor((subtotalCents * rateBps + 5000) / 10000);
+            totalCents = subtotalCents + taxCents;
+        } else {
+            totalCents = amountCents;
+            taxCents = Math.floor((totalCents * rateBps + Math.floor((10000 + rateBps) / 2)) / (10000 + rateBps));
+            subtotalCents = totalCents - taxCents;
+        }
+        const money = cents => formatMoney((cents / 100).toFixed(2));
+        const taxLabel = `${currentTaxConfiguration.tax_name} (${Number(currentTaxConfiguration.tax_rate).toFixed(2)}%)`;
+        $('#order-preview-subtotal').text(money(subtotalCents));
+        $('#order-preview-tax-label').text(taxLabel);
+        $('#order-preview-tax').text(money(taxCents));
+        $('#order-preview-total').text(money(totalCents));
     }
 
     function searchCustomers() {
@@ -470,7 +614,8 @@ const OrdersModule = (function () {
 
         request
             .done(function (response) {
-                if (!response || !response.success || !Array.isArray(response.data)) {
+                const customers = window.apiData(response);
+                if (!response || response.status === 'error' || !Array.isArray(response.data)) {
                     return;
                 }
                 if ($(s.customerSearch).val().trim() !== query) {
@@ -478,7 +623,7 @@ const OrdersModule = (function () {
                 }
 
                 const select = $(s.customer);
-                const emptyMessage = response.data.length
+                const emptyMessage = customers.length
                     ? 'Select Customer'
                     : query === ''
                         ? 'No eligible customers'
@@ -486,7 +631,7 @@ const OrdersModule = (function () {
                 select.empty().append(
                     $('<option>').val('').text(emptyMessage)
                 );
-                response.data.forEach(function (customer) {
+                customers.forEach(function (customer) {
                     const label = customer.contact_number
                         ? `${customer.customer_name} — ${customer.contact_number}`
                         : customer.customer_name;

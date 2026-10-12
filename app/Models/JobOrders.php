@@ -3,10 +3,31 @@
 namespace Models;
 
 use Core\Model;
-use Core\Validation;
 
 class JobOrders extends Model
 {
+    public static function productionEndDateError(string $endDate, ?string $startDate): ?string
+    {
+        $date = \DateTime::createFromFormat('Y-m-d', $endDate);
+        if (!$date || $date->format('Y-m-d') !== $endDate) return 'Enter a valid production end date.';
+        if ($startDate && $endDate < $startDate) return 'Production end date cannot be earlier than the start date.';
+        return null;
+    }
+
+    public function eligiblePendingOrders(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT o.order_id, c.customer_name, o.product_name
+             FROM orders o
+             INNER JOIN customers c ON c.customer_id = o.customer_id
+             LEFT JOIN job_orders j ON j.order_id = o.order_id
+             WHERE o.status = 'Pending' AND j.job_order_id IS NULL
+             ORDER BY o.order_id DESC"
+        );
+
+        return $stmt->fetchAll();
+    }
+
     public function find(?string $productionAssignment = null)
     {
         $sql =
@@ -50,25 +71,25 @@ class JobOrders extends Model
             $orderRecord = $order->fetch();
             if (!$orderRecord) {
                 $this->db->rollBack();
-                return ['success' => false, 'message' => 'Order not found.'];
+                return ['success' => false, 'status' => 404, 'message' => 'Order not found.'];
             }
             if ($orderRecord->status !== 'Pending') {
                 $this->db->rollBack();
-                return ['success' => false, 'message' => 'A Job Order can only be created from a Pending order.'];
+                return ['success' => false, 'status' => 409, 'message' => 'A Job Order can only be created from a Pending order.'];
             }
             $check = $this->db->prepare('SELECT job_order_id FROM job_orders WHERE order_id = ? FOR UPDATE');
             $check->execute([$orderId]);
             if ($check->fetch()) {
                 $this->db->rollBack();
-                return ['success' => false, 'message' => 'A Job Order already exists for this Order.'];
+                return ['success' => false, 'status' => 409, 'message' => 'A Job Order already exists for this Order.'];
             }
             $stmt = $this->db->prepare("INSERT INTO job_orders (order_id, customer_approval, status) VALUES (?, 'Pending', 'Pending')");
             $success = $stmt->execute([$orderId]);
             $this->db->commit();
-            return ['success' => $success, 'message' => $success ? 'Job Order created successfully.' : 'Failed to create Job Order.'];
+            return ['success' => $success, 'status' => $success ? 200 : 500, 'message' => $success ? 'Job Order created successfully.' : 'Failed to create Job Order.'];
         } catch (\PDOException $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
-            return ['success' => false, 'message' => 'Failed to create Job Order.'];
+            return ['success' => false, 'status' => 500, 'message' => 'Failed to create Job Order.'];
         }
     }
 
@@ -133,7 +154,7 @@ class JobOrders extends Model
             $stmt->execute([$id]);
             $job = $stmt->fetch();
             if (!$job || !in_array($job->status, ['Pending', 'Processing'], true)
-                || Validation::productionEndDate((string) $endDate, $job->production_start_date ? (string) $job->production_start_date : null) !== null) {
+                || self::productionEndDateError((string) $endDate, $job->production_start_date ? (string) $job->production_start_date : null) !== null) {
                 $this->db->rollBack();
                 return false;
             }
@@ -158,7 +179,7 @@ class JobOrders extends Model
                 || $job->customer_approval !== 'Approved'
                 || trim((string) $job->production_assignment) === ''
                 || !$job->production_start_date || !$job->production_end_date
-                || Validation::productionEndDate(
+                || self::productionEndDateError(
                     (string) $job->production_end_date,
                     (string) $job->production_start_date
                 ) !== null) {

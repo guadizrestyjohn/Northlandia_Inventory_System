@@ -21,11 +21,10 @@ class RecordsController extends BaseApiController
         $this->requireGet();
         try {
             $this->respond([
-                'success' => true,
                 'data' => $this->Records->search($this->filters()),
             ]);
         } catch (\Throwable $e) {
-            $this->respond(['success' => false, 'message' => 'Unable to load records right now.'], 500);
+            $this->respondError('Unable to load records right now.', 500);
         }
     }
 
@@ -41,7 +40,7 @@ class RecordsController extends BaseApiController
         $this->requireRecordsManagement();
         $this->requireGetOrPost();
         if (!ctype_digit((string) $id)) {
-            $this->respond(['success' => false, 'message' => 'Record not found.'], 404);
+            $this->respondError('Record not found.', 404);
         }
 
         $type = $this->queryValue('record_type');
@@ -53,12 +52,12 @@ class RecordsController extends BaseApiController
             try {
                 $record = $this->Records->findDocument($id, $type);
             } catch (\Throwable $e) {
-                $this->respond(['success' => false, 'message' => 'Unable to load this record right now.'], 500);
+                $this->respondError('Unable to load this record right now.', 500);
             }
             if (!$record) {
-                $this->respond(['success' => false, 'message' => 'Record not found.'], 404);
+                $this->respondError('Record not found.', 404);
             }
-            $this->respond(['success' => true, 'data' => $record]);
+            $this->respond($record);
         }
 
         $this->save((int) $id);
@@ -70,11 +69,10 @@ class RecordsController extends BaseApiController
         try {
             $result = $this->Records->saveDocument($id, $this->input(), (int) ($user['id'] ?? 0));
         } catch (\Throwable $e) {
-            $result = ['success' => false, 'message' => 'Unable to save this record right now.'];
+            $result = ['status' => 500, 'message' => 'Unable to save this record right now.'];
         }
 
-        $status = $result['success'] ? 200 : 422;
-        $this->respond($result, $status);
+        $this->respondResult($result, 422);
     }
 
     private function filters(): array
@@ -131,7 +129,7 @@ class RecordsController extends BaseApiController
     {
         $this->requireLogin();
         if (!Auth::canAccessRecords()) {
-            $this->respond(['success' => false, 'message' => 'You are not authorized to access company records.'], 403);
+            $this->respondError('You are not authorized to access company records.', 403);
         }
     }
 
@@ -139,7 +137,7 @@ class RecordsController extends BaseApiController
     {
         $this->requireLogin();
         if (!Auth::canManageRecords()) {
-            $this->respond(['success' => false, 'message' => 'You are not authorized to manage company records.'], 403);
+            $this->respondError('You are not authorized to manage company records.', 403);
         }
     }
 }

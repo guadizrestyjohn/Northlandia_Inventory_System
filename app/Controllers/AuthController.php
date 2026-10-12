@@ -28,8 +28,8 @@ class AuthController extends BaseController
             $this->redirect(BASE_URL . '/Auth');
         }
 
-        $username = trim($_POST['username'] ?? '');
-        $password = $_POST['password'] ?? '';
+        $username = $this->postString('username');
+        $password = $this->postString('password', false);
 
         if ($username === '' || $password === '') {
             $_SESSION['error'] = 'Username and password are required.';
@@ -55,5 +55,16 @@ class AuthController extends BaseController
         Auth::logout();
 
         $this->redirect(BASE_URL . '/Auth');
+    }
+
+    private function postString(string $key, bool $trim = true): string
+    {
+        $value = $_POST[$key] ?? '';
+        if (!is_scalar($value)) {
+            return '';
+        }
+
+        $value = (string) $value;
+        return $trim ? trim($value) : $value;
     }
 }

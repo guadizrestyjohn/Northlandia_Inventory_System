@@ -97,6 +97,10 @@ const CustomersModule = (function () {
             contentType: false
         })
             .done(function (response) {
+                if (!window.isApiSuccess(response)) {
+                    showMessage(response && response.message ? response.message : 'Unable to save customer.');
+                    return;
+                }
                 showMessage(
                     response.message || 'Customer saved successfully.'
                 );
@@ -164,7 +168,7 @@ const CustomersModule = (function () {
         table = tableElement.DataTable({
             ajax: {
                 url: `${base_url}/api/Customers/all`,
-                dataSrc: 'data',
+                dataSrc: window.apiData,
                 error: handleAjaxError
             },
 

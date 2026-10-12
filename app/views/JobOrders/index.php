@@ -80,8 +80,14 @@ $linkedOrderIds = array_map(
                         <option value="">Select Order</option>
                         <?php foreach ($orders as $order): ?>
                             <?php if ($order->status === 'Pending' && !in_array((string) $order->order_id, $linkedOrderIds, true)): ?>
+                                <?php
+                                $orderId = (string) $order->order_id;
+                                $orderNumber = ctype_digit($orderId)
+                                    ? 'ORD-' . str_pad($orderId, 4, '0', STR_PAD_LEFT)
+                                    : '';
+                                ?>
                                 <option value="<?= (int) $order->order_id ?>">
-                                    <?= htmlspecialchars(\Core\Display::orderNumber($order->order_id), ENT_QUOTES, 'UTF-8') ?> —
+                                    <?= htmlspecialchars($orderNumber, ENT_QUOTES, 'UTF-8') ?> —
                                     <?= htmlspecialchars(
                                         (string) $order->customer_name . ' — ' . (string) $order->product_name,
                                         ENT_QUOTES,

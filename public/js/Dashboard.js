@@ -43,12 +43,24 @@
                 maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 scales: {
-                    x: { grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { precision: 0 } },
+                    x: {
+                        grid: { display: false },
+                        title: { display: true, text: 'Date' },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0 },
+                        title: { display: true, text: 'Number of orders' },
+                    },
                 },
                 plugins: {
                     legend: { display: false },
-                    tooltip: { displayColors: false },
+                    tooltip: {
+                        displayColors: false,
+                        callbacks: {
+                            label: context => `${context.dataset.label}: ${context.parsed.y}`,
+                        },
+                    },
                 },
             },
         });
@@ -87,7 +99,12 @@
                         position: 'bottom',
                         labels: { usePointStyle: true, boxWidth: 8 },
                     },
-                    tooltip: { displayColors: false },
+                    tooltip: {
+                        displayColors: false,
+                        callbacks: {
+                            label: context => `${context.label}: ${context.parsed}`,
+                        },
+                    },
                 },
             },
         });

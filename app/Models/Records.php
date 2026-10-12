@@ -117,6 +117,12 @@ class Records extends Model
                 'message' => 'Receipt Records are created when a payment is recorded from Orders.',
             ];
         }
+        if ($id === null && !in_array($type, ['Purchase', 'Bidding Document'], true)) {
+            return [
+                'success' => false,
+                'message' => 'Only Purchase and Bidding Document records can be added here.',
+            ];
+        }
 
         $reference = trim((string) ($data['reference_no'] ?? ''));
         $dateValue = trim((string) ($data['record_date'] ?? ''));
@@ -179,7 +185,7 @@ class Records extends Model
             $order->execute([$orderId]);
             $orderRecord = $order->fetch();
             if (!$orderRecord) {
-                return ['success' => false, 'message' => 'The selected order could not be found.'];
+                return ['success' => false, 'status' => 404, 'message' => 'The selected order could not be found.'];
             }
             if ($definition['requires_completed_order'] && $orderRecord->status !== 'Completed') {
                 return ['success' => false, 'message' => 'This record must be linked to a completed Order.'];
@@ -193,7 +199,7 @@ class Records extends Model
         );
         $duplicate->execute([$reference, $id, $id]);
         if ($duplicate->fetch()) {
-            return ['success' => false, 'message' => 'That reference number is already used for this record type.'];
+            return ['success' => false, 'status' => 409, 'message' => 'That reference number is already used for this record type.'];
         }
 
         $fields = $definition['fields'];
@@ -226,7 +232,7 @@ class Records extends Model
                 $success = $stmt->execute($values);
             } else {
                 if (!$this->findDocument($id, $type)) {
-                    return ['success' => false, 'message' => 'Record not found or cannot be edited.'];
+                    return ['success' => false, 'status' => 404, 'message' => 'Record not found or cannot be edited.'];
                 }
                 $fieldValues = array_combine($fields, $values);
                 $updateFields = array_values(array_diff($fields, ['created_by']));
@@ -242,11 +248,12 @@ class Records extends Model
                 $success = $stmt->execute(array_merge($updateValues, [$id]));
             }
         } catch (PDOException $e) {
-            return ['success' => false, 'message' => 'Unable to save this record.'];
+            return ['success' => false, 'status' => 500, 'message' => 'Unable to save this record.'];
         }
 
         return [
             'success' => $success,
+            'status' => $success ? 200 : 500,
             'message' => $success ? 'Record saved successfully.' : 'Unable to save this record.',
         ];
     }
@@ -306,6 +313,14 @@ class Records extends Model
 
     private function recordsQuery(): string
     {
+        $receiptTaxDetails = $this->hasOrderTaxSnapshotSchema()
+            ? "CASE WHEN o.tax_name_snapshot IS NOT NULL THEN CONCAT(
+                   'Order total includes ', o.subtotal_before_tax_snapshot,
+                   ' before tax; ', o.tax_name_snapshot, ' (',
+                   FORMAT(o.tax_rate_snapshot, 2), '%) tax ', o.tax_amount_snapshot
+               ) ELSE NULL END"
+            : 'NULL';
+
         return "SELECT records.*,
             CASE WHEN records.record_type = 'Job Order' THEN (
                 SELECT release_tx.transaction_date
@@ -421,7 +436,7 @@ class Records extends Model
                    rr.receipt_record_id AS record_id,
                    rr.reference_no,
                    rr.receipt_date AS record_date,
-                   CONCAT_WS(' · ', rr.payment_type, rr.description) AS description,
+                   CONCAT_WS(' · ', rr.payment_type, rr.description, $receiptTaxDetails) AS description,
                    rr.amount,
                    rr.order_id,
                    c.customer_name,
@@ -513,7 +528,7 @@ class Records extends Model
 
             SELECT 'Order' AS record_type,
                    o.order_id AS record_id,
-                   CONCAT('ORD-', LPAD(o.order_id, 4, '0')) AS reference_no,
+                   CONCAT('ORD-', LPAD(o.order_id, GREATEST(4, CHAR_LENGTH(o.order_id)), '0')) AS reference_no,
                    o.order_date AS record_date,
                    CONCAT_WS(' | ', CONCAT('Product: ', o.product_name),
                        CONCAT('Quantity: ', TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(o.quantity AS CHAR)))), NULLIF(o.specifications, ''),
@@ -583,8 +598,8 @@ class Records extends Model
                    DATE(st.transaction_date) AS record_date,
                    CONCAT_WS(' | ', CONCAT('Item: ', i.item_name),
                        CONCAT('Quantity: ', TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(st.quantity AS CHAR)))),
-                       IF(st.order_id IS NOT NULL, CONCAT('Order No.: ORD-', LPAD(st.order_id, 4, '0')), NULL),
-                       IF(st.job_order_id IS NOT NULL, CONCAT('Job Order No.: JO-', LPAD(st.job_order_id, 4, '0')), NULL),
+                       IF(st.order_id IS NOT NULL, CONCAT('Order No.: ORD-', LPAD(st.order_id, GREATEST(4, CHAR_LENGTH(st.order_id)), '0')), NULL),
+                       IF(st.job_order_id IS NOT NULL, CONCAT('Job Order No.: JO-', LPAD(st.job_order_id, GREATEST(4, CHAR_LENGTH(st.job_order_id)), '0')), NULL),
                        NULLIF(st.remarks, '')) AS description,
                    NULL AS amount,
                    st.order_id,
@@ -615,9 +630,9 @@ class Records extends Model
 
             SELECT 'Job Order' AS record_type,
                    j.job_order_id AS record_id,
-                   CONCAT('JO-', LPAD(j.job_order_id, 4, '0')) AS reference_no,
+                   CONCAT('JO-', LPAD(j.job_order_id, GREATEST(4, CHAR_LENGTH(j.job_order_id)), '0')) AS reference_no,
                    DATE(j.created_at) AS record_date,
-                   CONCAT_WS(' | ', CONCAT('Order No.: ORD-', LPAD(o.order_id, 4, '0')),
+                   CONCAT_WS(' | ', CONCAT('Order No.: ORD-', LPAD(o.order_id, GREATEST(4, CHAR_LENGTH(o.order_id)), '0')),
                        CONCAT('Product: ', o.product_name),
                        CONCAT('Approval: ', j.customer_approval),
                        CONCAT('Assignment: ', COALESCE(j.production_assignment, 'Not assigned'))) AS description,
@@ -645,5 +660,22 @@ class Records extends Model
             INNER JOIN orders o ON o.order_id = j.order_id
             INNER JOIN customers c ON c.customer_id = o.customer_id
         ) AS records";
+    }
+
+    private function hasOrderTaxSnapshotSchema(): bool
+    {
+        try {
+            $stmt = $this->db->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = \'orders\'
+                   AND COLUMN_NAME IN (\'subtotal_before_tax_snapshot\', \'tax_name_snapshot\',
+                       \'tax_rate_snapshot\', \'tax_amount_snapshot\')'
+            );
+            $stmt->execute();
+            return (int) $stmt->fetchColumn() === 4;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }

@@ -45,10 +45,11 @@ $orders = $orders ?? [];
                         id="stock-in-quantity"
                         name="quantity"
                         type="number"
-                        min="0.01"
-                        step="0.01"
+                        min="1"
+                        step="1"
                         required
                     >
+                    <small class="form-text text-muted">Enter whole units only.</small>
                 </div>
 
                 <div class="form-group">
@@ -98,6 +99,12 @@ $orders = $orders ?? [];
                             <option value="">No Order Reference</option>
                             <?php foreach ($orders as $order): ?>
                                 <?php if ($order->status === 'Ready for Stock Out' && $order->job_order_status === 'Ready for Release' && !empty($order->production_completed_at)): ?>
+                                    <?php
+                                    $orderId = (string) $order->order_id;
+                                    $orderNumber = ctype_digit($orderId)
+                                        ? 'ORD-' . str_pad($orderId, 4, '0', STR_PAD_LEFT)
+                                        : '';
+                                    ?>
                                     <option
                                         value="<?= (int) $order->order_id ?>"
                                         data-job-order-id="<?= (int) $order->job_order_id ?>"
@@ -107,7 +114,7 @@ $orders = $orders ?? [];
                                         data-order-quantity="<?= htmlspecialchars((string) $order->quantity, ENT_QUOTES, 'UTF-8') ?>"
                                         data-production-status="<?= htmlspecialchars((string) $order->job_order_status, ENT_QUOTES, 'UTF-8') ?>"
                                     >
-                                        <?= htmlspecialchars(\Core\Display::orderNumber($order->order_id), ENT_QUOTES, 'UTF-8') ?> —
+                                        <?= htmlspecialchars($orderNumber, ENT_QUOTES, 'UTF-8') ?> —
                                         <?= htmlspecialchars(
                                             (string) $order->customer_name . ' — ' . (string) $order->product_name,
                                             ENT_QUOTES,
@@ -164,10 +171,11 @@ $orders = $orders ?? [];
                             id="stock-out-quantity"
                             name="quantity"
                             type="number"
-                            min="0.01"
-                            step="0.01"
+                            min="1"
+                            step="1"
                             required
                         >
+                        <small class="form-text text-muted">Enter whole units only.</small>
                     </div>
 
                     <div class="form-group">

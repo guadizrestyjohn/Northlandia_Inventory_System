@@ -5,12 +5,19 @@ const RecordsModule = (function () {
         const tableElement = $('#records-table');
         const canManage = tableElement.attr('data-can-manage') === '1';
         const editableTypes = ['Purchase', 'Sales', 'Invoice', 'Bidding Document'];
+        const creatableTypes = ['Purchase', 'Bidding Document'];
         function escapeHtml(value) {
         return $('<div>')
             .text(value == null ? '' : String(value))
             .html();
     }
         let table = null;
+
+        function updateAddRecordButton() {
+            const canAddCurrentType = canManage
+                && creatableTypes.includes($('#records-type').val());
+            $('#btn-add-record').toggleClass('d-none', !canAddCurrentType);
+        }
     
         function textColumn(data, title, options) {
             const column = {
@@ -56,6 +63,21 @@ const RecordsModule = (function () {
                     ? '<button type="button" class="btn btn-warning btn-sm js-edit-record">Edit</button>'
                     : '';
 
+                return view + edit;
+            }
+        };
+
+        const invoiceDetailsAction = {
+            data: null,
+            title: 'Tax Summary',
+            orderable: false,
+            searchable: false,
+            render: (_value, _display, row) => {
+                const view = '<button type="button" class="btn btn-info btn-sm js-view-record mr-1">View</button>';
+                const edit = canManage && editableTypes.includes(row.record_type)
+                    && Number(row.record_id) > 0
+                    ? '<button type="button" class="btn btn-warning btn-sm js-edit-record">Edit</button>'
+                    : '';
                 return view + edit;
             }
         };
@@ -121,19 +143,21 @@ const RecordsModule = (function () {
                                     maximumFractionDigits: 2
                                 })}`
                         }),
+                        textColumn('description', 'Details'),
                         textColumn('status', 'Status'),
                         textColumn('created_by_name', 'Created By'),
                         detailsAction
                     ];
-                                case 'Invoice':
-                    return withAction([
+                case 'Invoice':
+                    return [
                         textColumn('reference_no', 'Invoice No.'),
                         orderLink('order_id'),
                         textColumn('customer_name', 'Customer'),
                         textColumn('record_date', 'Invoice Date'),
                         textColumn('amount', 'Amount'),
-                        textColumn('status', 'Status')
-                    ]);
+                        textColumn('status', 'Status'),
+                        invoiceDetailsAction
+                    ];
                 case 'Bidding Document':
                     return withAction([
                         textColumn('reference_no', 'Reference No.'),
@@ -228,7 +252,7 @@ const RecordsModule = (function () {
                         request.status = $('#records-status').val();
                     },
                     dataSrc: function (json) {
-                        return json.data || [];
+                        return window.apiData(json);
                     },
                     error: handleAjaxError
                 },
@@ -267,6 +291,12 @@ const RecordsModule = (function () {
         function setRecordForm(record = null) {
             const isEditing = Boolean(record && record.record_id);
             form[0].reset();
+            $('#record-type option').each(function () {
+                const canCreateType = creatableTypes.includes(this.value);
+                $(this)
+                    .prop('disabled', !isEditing && !canCreateType)
+                    .toggle(isEditing || canCreateType);
+            });
             $('#record-id').val(record ? record.record_id : '');
             $('#record-type').val(record ? record.record_type : 'Purchase').prop('disabled', isEditing);
             $('#record-type-locked').prop('disabled', !isEditing).val(isEditing ? record.record_type : '');
@@ -306,6 +336,7 @@ const RecordsModule = (function () {
     });
 
     $('#records-type').on('change', function () {
+        updateAddRecordButton();
         buildTable();
     });
 
@@ -329,7 +360,41 @@ const RecordsModule = (function () {
             return;
         }
 
-        const rows = record.record_type === 'Receipt'
+        const rows = record.record_type === 'Invoice'
+            ? (() => {
+                const descriptionParts = String(record.description || '').split(' | ');
+                const taxRows = descriptionParts.length > 1
+                    ? descriptionParts.slice(1).map(part => {
+                        const separator = part.lastIndexOf(': PHP ');
+                        return separator < 0
+                            ? null
+                            : [part.slice(0, separator), part.slice(separator + 2)];
+                    })
+                    : [];
+                const hasTaxSummary = taxRows.length > 0 && taxRows.every(Boolean);
+                const invoiceRows = [
+                    ['Invoice No.', record.reference_no],
+                    ['Order No.', record.order_id ? window.formatOrderNumber(record.order_id) : '—'],
+                    ['Customer', record.customer_name],
+                    ['Product', record.product_name],
+                    ['Invoice Date', record.record_date],
+                    ['Amount', record.amount == null ? 'Not recorded' : `₱${Number(record.amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]
+                ];
+
+                if (hasTaxSummary) {
+                    invoiceRows.push(['Invoice Details', descriptionParts[0]], ...taxRows);
+                } else if (record.description) {
+                    invoiceRows.push(['Tax Details', record.description]);
+                }
+
+                invoiceRows.push(
+                    ['Status', record.status],
+                    ['Created By', record.created_by_name],
+                    ['Created At', record.created_at]
+                );
+                return invoiceRows;
+            })()
+            : record.record_type === 'Receipt'
             ? [
                 ['Receipt No.', record.reference_no],
                 ['Order No.', record.order_id ? window.formatOrderNumber(record.order_id) : '—'],
@@ -383,16 +448,28 @@ const RecordsModule = (function () {
         const body = $('#record-details-body').empty();
 
         rows.forEach(function (row) {
-            $('<tr>')
-                .append(
-                    $('<th scope="row">').text(row[0]),
-                    $('<td>').text(
-                        row[1] == null || row[1] === ''
-                            ? '—'
-                            : String(row[1])
-                    )
-                )
-                .appendTo(body);
+            const finalTotal = record.record_type === 'Invoice'
+                && /^Final total$/i.test(String(row[0] || ''));
+            const $row = $('<tr>');
+            const $label = $('<th scope="row">').text(row[0] || 'Invoice');
+            const $value = $('<td>').text(
+                row[1] == null || row[1] === ''
+                    ? '—'
+                    : String(row[1])
+            );
+
+            if (record.record_type === 'Invoice') {
+                $label.addClass('records-invoice-label');
+            }
+            if (record.record_type === 'Invoice' && row[1] && /^PHP\s/.test(String(row[1]))) {
+                $label.addClass('records-invoice-amount-label');
+                $value.addClass('records-invoice-amount');
+            }
+            if (finalTotal) {
+                $row.addClass('records-invoice-final-total');
+            }
+
+            $row.append($label, $value).appendTo(body);
         });
 
         $('#record-details-title').text(
@@ -419,6 +496,10 @@ const RecordsModule = (function () {
             contentType: false
         })
             .done(function (response) {
+                if (!window.isApiSuccess(response)) {
+                    showMessage(response && response.message ? response.message : 'Unable to save record.');
+                    return;
+                }
                 showMessage(
                     response.message ||
                     'Record saved successfully.'
@@ -435,6 +516,7 @@ const RecordsModule = (function () {
 
 buildTable();
 bindEvents();
+updateAddRecordButton();
 updateConditionalFields();
     }
 

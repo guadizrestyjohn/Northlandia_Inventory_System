@@ -113,6 +113,11 @@ CREATE TABLE `invoice_records` (
   `order_id` int(11) DEFAULT NULL,
   `invoice_date` date NOT NULL,
   `amount` decimal(10,2) DEFAULT NULL,
+  `subtotal_before_tax_snapshot` decimal(10,2) DEFAULT NULL,
+  `tax_name_snapshot` varchar(50) DEFAULT NULL,
+  `tax_rate_snapshot` decimal(5,2) DEFAULT NULL,
+  `tax_amount_snapshot` decimal(10,2) DEFAULT NULL,
+  `tax_calculation_mode_snapshot` varchar(10) DEFAULT NULL,
   `status` varchar(30) NOT NULL DEFAULT 'Recorded',
   `description` text DEFAULT NULL,
   `created_by` int(11) DEFAULT NULL,
@@ -152,6 +157,11 @@ CREATE TABLE `orders` (
   `quantity` decimal(10,2) NOT NULL DEFAULT 0.00,
   `specifications` text DEFAULT NULL,
   `order_total` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `subtotal_before_tax_snapshot` decimal(10,2) DEFAULT NULL,
+  `tax_name_snapshot` varchar(50) DEFAULT NULL,
+  `tax_rate_snapshot` decimal(5,2) DEFAULT NULL,
+  `tax_amount_snapshot` decimal(10,2) DEFAULT NULL,
+  `tax_calculation_mode_snapshot` varchar(10) DEFAULT NULL,
   `downpayment` decimal(10,2) DEFAULT 0.00,
   `delivery_method` varchar(50) DEFAULT NULL,
   `status` varchar(30) NOT NULL DEFAULT 'Pending',
@@ -253,7 +263,9 @@ CREATE TABLE `tax_settings` (
   `tax_id` int(11) NOT NULL,
   `tax_name` varchar(50) NOT NULL,
   `tax_rate` decimal(5,2) NOT NULL,
+  `calculation_mode` varchar(10) NOT NULL DEFAULT 'Inclusive',
   `status` enum('Active','Inactive') NOT NULL DEFAULT 'Active',
+  `active_vat_guard` tinyint(1) GENERATED ALWAYS AS (case when `status` = 'Active' and ucase(trim(`tax_name`)) = 'VAT' then 1 else NULL end) VIRTUAL,
   `updated_by` int(11) DEFAULT NULL,
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -391,6 +403,7 @@ ALTER TABLE `stock_transactions`
 --
 ALTER TABLE `tax_settings`
   ADD PRIMARY KEY (`tax_id`),
+  ADD UNIQUE KEY `tax_settings_one_active_vat` (`active_vat_guard`),
   ADD KEY `updated_by` (`updated_by`);
 
 --

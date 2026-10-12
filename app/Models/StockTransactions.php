@@ -4,7 +4,6 @@ namespace Models;
 
 use Core\Model;
 use Core\Auth;
-use PDOException;
 
 class StockTransactions extends Model
 {
@@ -27,6 +26,9 @@ class StockTransactions extends Model
         }
         if (!is_scalar($quantity) || !preg_match('/^\d+(?:\.\d{1,2})?$/', (string) $quantity)) {
             return ['success' => false, 'message' => 'Quantity must be a valid number greater than 0.', 'status' => 422];
+        }
+        if (!preg_match('/^\d+(?:\.0{1,2})?$/', trim((string) $quantity))) {
+            return ['success' => false, 'message' => $type . ' quantity must be a whole number greater than 0.', 'status' => 422];
         }
         $quantity = self::normalizeDecimal((string) $quantity);
         if ($quantity === null || $quantity === '0.00') {
@@ -103,6 +105,8 @@ class StockTransactions extends Model
 
     public function create($inventoryId, $type, $quantity, $remarks, $userId, $orderId = null, $jobOrderId = null, bool $confirmRelease = false)
     {
+        $referenceLockAcquired = false;
+        $transactionCommitted = false;
         try {
             $this->db->beginTransaction();
 
@@ -122,9 +126,10 @@ class StockTransactions extends Model
 
             $current = self::normalizeDecimal((string) $item->quantity);
             $quantity = self::normalizeDecimal((string) $quantity);
-            if ($current === null || $quantity === null || $quantity === '0.00') {
+            if ($current === null || $quantity === null || $quantity === '0.00'
+                || !preg_match('/^\d+\.00$/', $quantity)) {
                 $this->db->rollBack();
-                return ['success' => false, 'message' => 'Inventory quantity is invalid.', 'status' => 422];
+                return ['success' => false, 'message' => $type . ' quantity must be a whole number greater than 0.', 'status' => 422];
             }
             $order = null;
             if ($type === 'Stock Out') {
@@ -219,6 +224,14 @@ class StockTransactions extends Model
             }
             $status = self::compareDecimals($updated, '0.00') > 0 ? 'Available' : 'Out of Stock';
             $prefix = $type === 'Stock In' ? 'SI' : 'SO';
+            $referenceLockAcquired = (int) $this->db
+                ->query("SELECT GET_LOCK('northlandia_stock_reference_write', 10)")
+                ->fetchColumn() === 1;
+            if (!$referenceLockAcquired) {
+                $this->db->rollBack();
+                return ['success' => false, 'message' => 'Another stock transaction is being recorded. Try again shortly.', 'status' => 409];
+            }
+
             $stmt = $this->db->prepare(
                 'SELECT reference_no FROM stock_transactions
                  WHERE transaction_type = ? AND YEAR(transaction_date) = ?
@@ -226,7 +239,11 @@ class StockTransactions extends Model
             );
             $stmt->execute([$type, date('Y')]);
             $last = $stmt->fetch();
-            $next = $last ? ((int) substr((string) $last->reference_no, -3)) + 1 : 1;
+            $lastSequence = 0;
+            if ($last && preg_match('/-(\d+)$/', (string) $last->reference_no, $matches)) {
+                $lastSequence = (int) $matches[1];
+            }
+            $next = $lastSequence + 1;
             $reference = $prefix . '-' . date('Y') . '-' . str_pad((string) $next, 3, '0', STR_PAD_LEFT);
 
             $stmt = $this->db->prepare(
@@ -260,7 +277,8 @@ class StockTransactions extends Model
                 $invoiceCheck->execute([$orderId]);
                 if (!$invoiceCheck->fetch()) {
                     $invoiceOrder = $this->db->prepare(
-                        'SELECT order_total
+                        'SELECT order_total, subtotal_before_tax_snapshot, tax_name_snapshot,
+                                tax_rate_snapshot, tax_amount_snapshot, tax_calculation_mode_snapshot
                          FROM orders
                          WHERE order_id = ? FOR UPDATE'
                     );
@@ -273,22 +291,42 @@ class StockTransactions extends Model
 
                     $invoiceInsert = $this->db->prepare(
                         'INSERT INTO invoice_records
-                            (reference_no, order_id, invoice_date, amount, status, description, created_by)
-                         VALUES (?, ?, ?, ?, ?, ?, ?)'
+                            (reference_no, order_id, invoice_date, amount, status, description, created_by,
+                             subtotal_before_tax_snapshot, tax_name_snapshot, tax_rate_snapshot,
+                             tax_amount_snapshot, tax_calculation_mode_snapshot)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                     );
+                    $invoiceDescription = 'Automatic invoice for completed Order';
+                    if ($orderInvoice->tax_name_snapshot !== null) {
+                        $invoiceDescription .= sprintf(
+                            ' | Amount before tax: PHP %s | %s (%s%%, %s): PHP %s | Final total: PHP %s',
+                            $orderInvoice->subtotal_before_tax_snapshot,
+                            $orderInvoice->tax_name_snapshot,
+                            number_format((float) $orderInvoice->tax_rate_snapshot, 2, '.', ''),
+                            $orderInvoice->tax_calculation_mode_snapshot,
+                            $orderInvoice->tax_amount_snapshot,
+                            $orderInvoice->order_total
+                        );
+                    }
                     $invoiceInsert->execute([
                         'INV-' . $orderId,
                         $orderId,
                         date('Y-m-d'),
                         $orderInvoice->order_total,
                         'Recorded',
-                        'Automatic invoice for completed Order',
+                        $invoiceDescription,
                         $userId > 0 ? $userId : null,
+                        $orderInvoice->subtotal_before_tax_snapshot,
+                        $orderInvoice->tax_name_snapshot,
+                        $orderInvoice->tax_rate_snapshot,
+                        $orderInvoice->tax_amount_snapshot,
+                        $orderInvoice->tax_calculation_mode_snapshot,
                     ]);
                 }
             }
 
             $this->db->commit();
+            $transactionCommitted = true;
 
             return [
                 'success' => true,
@@ -297,11 +335,25 @@ class StockTransactions extends Model
                     : 'Stock transaction recorded successfully.',
                 'new_quantity' => $updated
             ];
-        } catch (PDOException $e) {
+        } catch (\Throwable $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
+            error_log('Stock transaction failed before completion.');
             return ['success' => false, 'message' => 'Transaction failed.', 'status' => 500];
+        } finally {
+            if ($referenceLockAcquired) {
+                try {
+                    $released = $this->db
+                        ->query("SELECT RELEASE_LOCK('northlandia_stock_reference_write')")
+                        ->fetchColumn();
+                    if ((int) $released !== 1) {
+                        error_log('Stock reference advisory lock release failed ' . ($transactionCommitted ? 'after commit.' : 'before commit.'));
+                    }
+                } catch (\Throwable $releaseError) {
+                    error_log('Stock reference advisory lock release failed ' . ($transactionCommitted ? 'after commit.' : 'before commit.'));
+                }
+            }
         }
     }
 

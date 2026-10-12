@@ -3,6 +3,11 @@ Options -Indexes
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # Keep source-control, backup, migration, archive, and database files private.
+    RewriteRule ^(?:\.git|BACKUP|migrations)(?:/|$) - [F,L,NC]
+    RewriteRule \.(?:sql|sqlite|db)$ - [F,L,NC]
+    RewriteRule ^sample\.zip$ - [F,L,NC]
+
     # Keep application source files out of the public URL space.
     RewriteRule ^app/ - [F,L]
 

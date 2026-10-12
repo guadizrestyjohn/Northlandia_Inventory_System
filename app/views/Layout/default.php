@@ -109,13 +109,21 @@ $userRole = $user['role'] ?? 'User';
                     </div>
                 <?php endif; ?>
 
-                <?php if (\Core\Auth::can('users.manage')): ?>
+                <?php if (\Core\Auth::can('users.manage') || \Core\Auth::can('tax_settings.manage')): ?>
                     <div class="north-nav-section">
                         <div class="north-nav-label">System</div>
+                        <?php if (\Core\Auth::can('tax_settings.manage')): ?>
+                            <a href="<?= BASE_URL ?>/TaxSettings" class="north-nav-link <?= $title === 'Tax Settings' ? 'active' : '' ?>">
+                                <i class="fas fa-percentage"></i>
+                                <span>Tax Settings</span>
+                            </a>
+                        <?php endif; ?>
+                        <?php if (\Core\Auth::can('users.manage')): ?>
                         <a href="<?= BASE_URL ?>/Users" class="north-nav-link <?= $title === 'User Management' ? 'active' : '' ?>">
                             <i class="fas fa-user-cog"></i>
                             <span>User Management</span>
                         </a>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
             </nav>
@@ -182,6 +190,7 @@ $userRole = $user['role'] ?? 'User';
         'Records' => ['Records.js'],
         'Reports' => ['Reports.js'],
         'User Management' => ['Users.js'],
+        'Tax Settings' => ['TaxSettings.js'],
     ];
     if (isset($moduleScripts[$title])):
         foreach ($moduleScripts[$title] as $moduleScript):

@@ -52,16 +52,40 @@ class Router
 
         if (!class_exists($controllerName)) {
             http_response_code(404);
+            if (str_starts_with($controllerName, 'Api\\')) {
+                header('Content-Type: application/json');
+                echo json_encode(['status' => 'error', 'message' => 'API endpoint not found.']);
+                return;
+            }
             exit('Controller not found.');
         }
 
-        $controller = new $controllerName();
+        try {
+            $controller = new $controllerName();
 
-        if (!is_callable([$controller, $action])) {
-            http_response_code(404);
-            exit('Page not found.');
+            if (!is_callable([$controller, $action])) {
+                http_response_code(404);
+                if (str_starts_with($controllerName, 'Api\\')) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['status' => 'error', 'message' => 'API endpoint not found.']);
+                    return;
+                }
+                exit('Page not found.');
+            }
+
+            $controller->$action(...$params);
+        } catch (\Throwable $e) {
+            if (!str_starts_with($controllerName, 'Api\\')) {
+                throw $e;
+            }
+
+            error_log('Unhandled API request failure in ' . $controllerName . '::' . $action . '.');
+            http_response_code(500);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'An unexpected server error occurred. Please try again.',
+            ]);
         }
-
-        $controller->$action(...$params);
     }
 }

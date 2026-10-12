@@ -1,3 +1,4 @@
+
 <?php
 
 session_start();
@@ -5,9 +6,7 @@ session_start();
 define('BASE_PATH', dirname(__DIR__));
 define('PUBLIC_PATH', BASE_PATH . '/public');
 
-$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-define('BASE_URL', $scheme . '://' . $host . '/Northlandia_Inventory_System');
+define('BASE_URL', 'http://' . $_SERVER['HTTP_HOST'] . '/Northlandia_Inventory_System');
 
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'northlandia_db');

@@ -2,6 +2,11 @@
 $orders = $orders ?? [];
 $filters = $filters ?? [];
 $canManageRecords = $canManageRecords ?? false;
+$canAddRecord = $canManageRecords && in_array(
+    $filters['type'] ?? '',
+    ['Purchase', 'Bidding Document'],
+    true
+);
 $success = $_SESSION['success'] ?? '';
 $error = $_SESSION['error'] ?? ($recordsLoadError ?? '');
 unset($_SESSION['success'], $_SESSION['error']);
@@ -24,7 +29,7 @@ $recordTypes = [
         <h3 class="card-title">Records Management</h3>
         <?php if ($canManageRecords): ?>
             <div class="card-tools">
-                <button type="button" class="btn btn-primary btn-sm" id="btn-add-record">
+                <button type="button" class="btn btn-primary btn-sm <?= $canAddRecord ? '' : 'd-none' ?>" id="btn-add-record">
                     <i class="fas fa-plus"></i> Add Record
                 </button>
             </div>
@@ -220,11 +225,17 @@ $recordTypes = [
                             <select class="form-control" id="record-order" name="order_id">
                                 <option value="">Select an order</option>
                                 <?php foreach ($orders as $order): ?>
+                                    <?php
+                                    $orderId = (string) $order->order_id;
+                                    $orderNumber = ctype_digit($orderId)
+                                        ? 'ORD-' . str_pad($orderId, 4, '0', STR_PAD_LEFT)
+                                        : '';
+                                    ?>
                                     <option
                                         value="<?= (int) $order->order_id ?>"
                                         data-status="<?= htmlspecialchars((string) $order->status, ENT_QUOTES, 'UTF-8') ?>"
                                     >
-                                        <?= htmlspecialchars(\Core\Display::orderNumber($order->order_id), ENT_QUOTES, 'UTF-8') ?> —
+                                        <?= htmlspecialchars($orderNumber, ENT_QUOTES, 'UTF-8') ?> —
                                         <?= htmlspecialchars(
                                             (string) $order->customer_name .
                                             ' · ' .

@@ -20,7 +20,7 @@ class DashboardController extends BaseApiController
         $this->requireGet();
 
         $this->respond([
-            'success' => true,
+            'status' => 'success',
             'data' => $this->dashboard->chartData(),
         ]);
     }

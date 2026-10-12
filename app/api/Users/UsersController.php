@@ -20,7 +20,6 @@ class UsersController extends BaseApiController
         $this->requirePermission('users.manage');
         $this->requireGet();
         $this->respond([
-            'success' => true,
             'data' => $this->Users->find(),
         ]);
     }
@@ -32,13 +31,14 @@ class UsersController extends BaseApiController
         $data = $this->input();
         $error = $this->validate($data, true);
         if ($error !== null) {
-            $this->respond(['success' => false, 'message' => $error], 422);
+            $this->respondError($error, 422);
         }
 
         $result = $this->Users->create($data);
-        $status = !empty($result['success']) ? 201 : (int) ($result['status'] ?? 409);
-        unset($result['status']);
-        $this->respond($result, $status);
+        if (!empty($result['success']) && empty($result['message'])) {
+            $result['message'] = 'User added successfully.';
+        }
+        $this->respondResult($result, 500, 201);
     }
 
     public function edit($id): void
@@ -46,48 +46,46 @@ class UsersController extends BaseApiController
         $this->requirePermission('users.manage');
         $this->requireGetOrPost();
         if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->respond(['success' => false, 'message' => 'User not found.'], 404);
+            $this->respondError('User not found.', 404);
         }
 
         $userId = (int) $id;
         $user = $this->Users->findByID($userId);
         if (!$user) {
-            $this->respond(['success' => false, 'message' => 'User not found.'], 404);
+            $this->respondError('User not found.', 404);
         }
         if (!Auth::canManageUserRole((string) $user->role_name)) {
-            $this->respond(['success' => false, 'message' => 'You are not authorized to manage this user.'], 403);
+            $this->respondError('You are not authorized to manage this user.', 403);
         }
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
-            $this->respond(['success' => true, 'data' => $user]);
+            $this->respond($user);
         }
 
         $data = $this->input();
         $error = $this->validate($data, false, $userId);
         if ($error !== null) {
-            $this->respond(['success' => false, 'message' => $error], 422);
+            $this->respondError($error, 422);
         }
         if ($userId === (int) (Auth::user()['id'] ?? 0)
             && (int) $data['role_id'] !== (int) (Auth::user()['role_id'] ?? 0)) {
-            $this->respond(['success' => false, 'message' => 'Ask another Administrator to change your own role.'], 403);
+            $this->respondError('Ask another Administrator to change your own role.', 403);
         }
         $result = $this->Users->update($userId, $data);
         if (empty($result['success'])) {
-            $status = (int) ($result['status'] ?? 409);
-            unset($result['status']);
-            $this->respond($result, $status);
+            $this->respondResult($result);
         }
 
         if ($userId === (int) (Auth::user()['id'] ?? 0) && $data['status'] === 'Inactive') {
             Auth::logout();
             $this->respond([
-                'success' => true,
+                'status' => 'success',
                 'message' => 'Your account was deactivated and you have been signed out.',
                 'signed_out' => true,
             ]);
         }
         $user = $this->Users->findByID($userId);
         if ($user) Auth::refreshCurrentUser($user);
-        $this->respond(['success' => true, 'message' => 'User updated successfully.']);
+        $this->respond(['status' => 'success', 'message' => 'User updated successfully.']);
     }
 
     public function status($id): void
@@ -95,40 +93,38 @@ class UsersController extends BaseApiController
         $this->requirePermission('users.manage');
         $this->requirePost();
         if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->respond(['success' => false, 'message' => 'User not found.'], 404);
+            $this->respondError('User not found.', 404);
         }
 
         $status = $this->inputValue('status');
         if (!in_array($status, ['Active', 'Inactive'], true)) {
-            $this->respond(['success' => false, 'message' => 'Select a valid user status.'], 422);
+            $this->respondError('Select a valid user status.', 422);
         }
 
         $currentUserId = (int) (Auth::user()['id'] ?? 0);
         $userId = (int) $id;
         $user = $this->Users->findByID($userId);
         if (!$user) {
-            $this->respond(['success' => false, 'message' => 'User not found.'], 404);
+            $this->respondError('User not found.', 404);
         }
         if (!Auth::canManageUserRole((string) $user->role_name)) {
-            $this->respond(['success' => false, 'message' => 'You are not authorized to manage this user.'], 403);
+            $this->respondError('You are not authorized to manage this user.', 403);
         }
         $result = $this->Users->updateStatus($userId, $status);
         if (empty($result['success'])) {
-            $httpStatus = (int) ($result['status'] ?? 409);
-            unset($result['status']);
-            $this->respond($result, $httpStatus);
+            $this->respondResult($result);
         }
 
         if ($currentUserId === $userId && $status === 'Inactive') {
             Auth::logout();
             $this->respond([
-                'success' => true,
+                'status' => 'success',
                 'message' => 'Your account was deactivated and you have been signed out.',
                 'signed_out' => true,
             ]);
         }
 
-        $this->respond(['success' => true, 'message' => 'User status updated successfully.']);
+        $this->respond(['status' => 'success', 'message' => 'User status updated successfully.']);
     }
 
     private function input(): array

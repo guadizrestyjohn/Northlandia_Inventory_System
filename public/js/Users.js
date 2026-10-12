@@ -113,6 +113,10 @@ const UsersModule = (function () {
             }
         })
             .done(function (response) {
+                if (!window.isApiSuccess(response)) {
+                    showMessage(response && response.message ? response.message : 'Unable to update user status.');
+                    return;
+                }
                 showMessage(
                     response.message ||
                     'User status updated.'
@@ -233,6 +237,10 @@ const UsersModule = (function () {
             contentType: false
         })
             .done(function (response) {
+                if (!window.isApiSuccess(response)) {
+                    showMessage(response && response.message ? response.message : 'Unable to save user.');
+                    return;
+                }
                 showMessage(
                     response.message ||
                     'User saved successfully.'
@@ -267,7 +275,7 @@ const UsersModule = (function () {
         table = $(s.table).DataTable({
             ajax: {
                 url: `${base_url}/api/Users/all`,
-                dataSrc: 'data',
+                dataSrc: window.apiData,
                 cache: false,
                 error: handleAjaxError
             },

@@ -74,7 +74,7 @@ const StockModule = (function () {
         table = stockTable.DataTable({
             ajax: {
                 url: `${base_url}/api/Stock/all`,
-                dataSrc: 'transactions',
+                dataSrc: window.apiData,
                 cache: false,
                 error: handleAjaxError
             },
@@ -158,6 +158,10 @@ const StockModule = (function () {
                 contentType: false
             })
                 .done(function (response) {
+                    if (!window.isApiSuccess(response)) {
+                        showMessage(response && response.message ? response.message : 'Unable to save stock transaction.');
+                        return;
+                    }
                     showMessage(
                         response.message ||
                         'Stock transaction saved successfully.'

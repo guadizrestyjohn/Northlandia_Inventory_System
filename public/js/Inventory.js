@@ -157,6 +157,10 @@ const InventoryModule = (function () {
             contentType: false
         })
             .done(function (response) {
+                if (!window.isApiSuccess(response)) {
+                    showMessage(response && response.message ? response.message : 'Unable to save inventory.');
+                    return;
+                }
                 showMessage(
                     response.message ||
                     'Inventory saved successfully.'
@@ -245,7 +249,7 @@ const InventoryModule = (function () {
         table = tableElement.DataTable({
             ajax: {
                 url: `${base_url}/api/Inventory/all`,
-                dataSrc: 'data',
+                dataSrc: window.apiData,
                 cache: false,
                 error: handleAjaxError
             },

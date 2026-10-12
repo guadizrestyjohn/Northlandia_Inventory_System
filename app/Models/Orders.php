@@ -7,12 +7,71 @@ use PDOException;
 
 class Orders extends Model
 {
+    private const MAX_ORDER_TOTAL_CENTS = 9999999999;
+
+    public static function parseTaxRate(string $rate): ?int
+    {
+        if (!preg_match('/^(?:0|[1-9]\d{0,2})(?:\.\d{1,2})?$/', $rate)) {
+            return null;
+        }
+        [$whole, $fraction] = array_pad(explode('.', $rate, 2), 2, '0');
+        return ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
+    }
+
+    public static function formatTaxRate(int $rateHundredths): string
+    {
+        return intdiv($rateHundredths, 100) . '.' . str_pad((string) ($rateHundredths % 100), 2, '0', STR_PAD_LEFT);
+    }
+
+    public static function calculateTax(string $amount, array $configuration): ?array
+    {
+        $enteredCents = self::amountToCents($amount);
+        $rateHundredths = self::parseTaxRate((string) ($configuration['tax_rate'] ?? ''));
+        $mode = $configuration['calculation_mode'] ?? '';
+        if ($enteredCents === null || $enteredCents < 1 || $rateHundredths === null
+            || !in_array($mode, ['Inclusive', 'Exclusive'], true)
+            || trim((string) ($configuration['tax_name'] ?? '')) === '') {
+            return null;
+        }
+
+        if ($mode === 'Inclusive') {
+            $grossCents = $enteredCents;
+            $taxCents = self::roundTaxRatio($grossCents * $rateHundredths, 10000 + $rateHundredths);
+            $subtotalCents = $grossCents - $taxCents;
+        } else {
+            $subtotalCents = $enteredCents;
+            $taxCents = self::roundTaxRatio($subtotalCents * $rateHundredths, 10000);
+            $grossCents = $subtotalCents + $taxCents;
+        }
+
+        if ($grossCents < 1 || $grossCents > self::MAX_ORDER_TOTAL_CENTS) {
+            return null;
+        }
+
+        return [
+            'subtotal_before_tax_snapshot' => self::formatCents($subtotalCents),
+            'tax_name_snapshot' => trim((string) $configuration['tax_name']),
+            'tax_rate_snapshot' => self::formatTaxRate($rateHundredths),
+            'tax_amount_snapshot' => self::formatCents($taxCents),
+            'tax_calculation_mode_snapshot' => $mode,
+            'order_total' => self::formatCents($grossCents),
+        ];
+    }
+
+    private static function roundTaxRatio(int $numerator, int $denominator): int
+    {
+        return intdiv($numerator + intdiv($denominator, 2), $denominator);
+    }
+
     public function find()
     {
         $stmt = $this->db->query(
             'SELECT o.order_id, o.customer_id, c.customer_name, o.order_date,
                     o.product_name, o.quantity, o.specifications, o.order_total,
                     o.downpayment, o.delivery_method, o.status,
+                    o.subtotal_before_tax_snapshot, o.tax_name_snapshot,
+                    o.tax_rate_snapshot, o.tax_amount_snapshot,
+                    o.tax_calculation_mode_snapshot,
                     COALESCE(receipt_totals.additional_paid, 0) AS additional_paid,
                     j.job_order_id, j.status AS job_order_status,
                     j.production_assignment, j.production_start_date,
@@ -65,14 +124,19 @@ class Orders extends Model
             $stmt = $this->db->prepare(
                 'INSERT INTO orders
                     (customer_id, order_date, product_name, quantity, specifications,
-                     order_total, downpayment, delivery_method, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                     order_total, downpayment, delivery_method, status,
+                     subtotal_before_tax_snapshot, tax_name_snapshot, tax_rate_snapshot,
+                     tax_amount_snapshot, tax_calculation_mode_snapshot)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $data['customer_id'], $data['order_date'], $data['product_name'],
                 $data['quantity'], $data['specifications'],
                 $data['order_total'], $data['downpayment'],
-                $data['delivery_method'], $data['status']
+                $data['delivery_method'], $data['status'],
+                $data['subtotal_before_tax_snapshot'], $data['tax_name_snapshot'],
+                $data['tax_rate_snapshot'], $data['tax_amount_snapshot'],
+                $data['tax_calculation_mode_snapshot']
             ]);
 
             $orderId = (int) $this->db->lastInsertId();
@@ -93,7 +157,7 @@ class Orders extends Model
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return ['success' => false, 'message' => 'Unable to save the Order and its initial payment.'];
+            return ['success' => false, 'status' => 500, 'message' => 'Unable to save the Order and its initial payment.'];
         }
     }
 
@@ -143,14 +207,22 @@ class Orders extends Model
             $stmt = $this->db->prepare(
                 'UPDATE orders SET customer_id = ?, order_date = ?, product_name = ?,
                     quantity = ?, specifications = ?, order_total = ?, downpayment = ?,
-                    delivery_method = ?, status = ?
+                    delivery_method = ?, status = ?, subtotal_before_tax_snapshot = ?,
+                    tax_name_snapshot = ?, tax_rate_snapshot = ?, tax_amount_snapshot = ?,
+                    tax_calculation_mode_snapshot = ?
                  WHERE order_id = ?'
             );
             $stmt->execute([
                 $data['customer_id'], $data['order_date'], $data['product_name'],
                 $data['quantity'], $data['specifications'],
                 $data['order_total'], $data['downpayment'],
-                $data['delivery_method'], $data['status'], $id
+                $data['delivery_method'], $data['status'],
+                $data['subtotal_before_tax_snapshot'] ?? null,
+                $data['tax_name_snapshot'] ?? null,
+                $data['tax_rate_snapshot'] ?? null,
+                $data['tax_amount_snapshot'] ?? null,
+                $data['tax_calculation_mode_snapshot'] ?? null,
+                $id
             ]);
 
             $this->db->commit();

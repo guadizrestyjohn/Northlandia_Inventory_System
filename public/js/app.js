@@ -4,6 +4,20 @@ window.showMessage = function (message) {
     window.alert(message);
 };
 
+window.isApiSuccess = function (response) {
+    return Boolean(response && response.status === 'success');
+};
+
+window.apiData = function (response) {
+    if (!response || typeof response !== 'object') return [];
+    if (response.status === 'error') {
+        window.showMessage(response.message || 'Unable to load this information.');
+        return [];
+    }
+    if (response.status && response.status !== 'success') return [];
+    return Array.isArray(response.data) ? response.data : [];
+};
+
 window.handleAjaxError = function (xhr) {
     const response = xhr && xhr.responseJSON;
     window.showMessage(response && response.message

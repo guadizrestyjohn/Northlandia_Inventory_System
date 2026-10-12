@@ -21,7 +21,7 @@ class ReportsController extends BaseApiController
 
         $type = $this->queryValue('type');
         if (!in_array($type, ['inventory', 'movements', 'orders'], true)) {
-            $this->respond(['success' => false, 'message' => 'Select a valid report type.'], 422);
+            $this->respondError('Select a valid report type.', 422);
         }
 
         $filters = [
@@ -34,16 +34,16 @@ class ReportsController extends BaseApiController
         ];
 
         if ($filters['category_id'] !== '' && !ctype_digit($filters['category_id'])) {
-            $this->respond(['success' => false, 'message' => 'Select a valid inventory category.'], 422);
+            $this->respondError('Select a valid inventory category.', 422);
         }
         foreach (['start_date', 'end_date'] as $dateKey) {
             if ($filters[$dateKey] !== '' && !$this->validDate($filters[$dateKey])) {
-                $this->respond(['success' => false, 'message' => 'Enter a valid report date.'], 422);
+                $this->respondError('Enter a valid report date.', 422);
             }
         }
         if ($filters['start_date'] !== '' && $filters['end_date'] !== ''
             && $filters['start_date'] > $filters['end_date']) {
-            $this->respond(['success' => false, 'message' => 'The start date must not be after the end date.'], 422);
+            $this->respondError('The start date must not be after the end date.', 422);
         }
         if ($filters['status'] !== '') {
             $allowedStatuses = [
@@ -55,7 +55,7 @@ class ReportsController extends BaseApiController
                 ],
             ];
             if (!in_array($filters['status'], $allowedStatuses[$type], true)) {
-                $this->respond(['success' => false, 'message' => 'Select a valid report status.'], 422);
+                $this->respondError('Select a valid report status.', 422);
             }
         }
 
@@ -66,17 +66,17 @@ class ReportsController extends BaseApiController
                 'orders' => $this->Reports->orders($filters),
             };
         } catch (\PDOException $e) {
-            $this->respond(['success' => false, 'message' => 'Unable to load this report right now.'], 500);
+            $this->respondError('Unable to load this report right now.', 500);
         }
 
-        $this->respond(['success' => true, 'data' => $data]);
+        $this->respond(['data' => $data]);
     }
 
     private function queryValue(string $key): string
     {
         $value = $_GET[$key] ?? '';
         if (!is_scalar($value)) {
-            $this->respond(['success' => false, 'message' => 'Enter valid report filters.'], 422);
+            $this->respondError('Enter valid report filters.', 400);
         }
 
         return trim((string) $value);
