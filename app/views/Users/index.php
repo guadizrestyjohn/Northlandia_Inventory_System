@@ -25,13 +25,15 @@ unset($_SESSION['success'], $_SESSION['error']);
         <?php endforeach; ?>
 
         <div class="table-responsive">
-            <table id="users-table" class="table table-bordered table-hover">
+            <table id="users-table" class="table table-bordered table-hover"
+                   data-can-manage-all-user-roles="<?= !empty($canManageAllUserRoles) ? '1' : '0' ?>">
                 <thead>
                     <tr>
                         <th>User ID</th>
                         <th>Username</th>
                         <th>Full Name</th>
                         <th>Role</th>
+                        <th>Production Team</th>
                         <th>Status</th>
                         <th>Action</th>
                     </tr>
@@ -76,6 +78,11 @@ unset($_SESSION['success'], $_SESSION['error']);
                             </option>
                         <?php endforeach; ?>
                     </select>
+                </div>
+                <div class="form-group" id="user-production-team-group" hidden>
+                    <label for="user-production-team">Production Team</label>
+                    <input class="form-control" id="user-production-team" name="production_team" maxlength="100" placeholder="e.g., Carpenters or Welders">
+                    <small class="form-text text-muted">Used to show assigned Job Orders to this Production Staff account. Leave blank for the shared Production Staff team.</small>
                 </div>
                 <div class="form-group mb-0">
                     <label for="user-status">Status</label>

@@ -71,7 +71,7 @@ unset($_SESSION['success'], $_SESSION['error']);
                 <input type="hidden" id="customer-id">
                 <div class="form-group">
                     <label for="customer-name">Customer Name</label>
-                    <input class="form-control" id="customer-name" name="customer_name" required>
+                    <input class="form-control" id="customer-name" name="customer_name" maxlength="100" required>
                 </div>
                 <div class="form-group">
                     <label for="customer-contact">Contact Number</label>

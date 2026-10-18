@@ -80,7 +80,6 @@ class Router
             }
 
             error_log('Unhandled API request failure in ' . $controllerName . '::' . $action . '.');
-            http_response_code(500);
             header('Content-Type: application/json');
             echo json_encode([
                 'status' => 'error',

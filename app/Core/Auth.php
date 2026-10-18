@@ -11,7 +11,7 @@ class Auth{
         'Manager' => [
             'dashboard.view', 'customers.view', 'orders.view', 'orders.payment', 'job_orders.view',
             'inventory.view', 'stock.view', 'stock.out', 'records.view', 'records.manage',
-            'reports.view', 'tax_settings.manage',
+            'reports.view', 'tax_settings.manage', 'users.manage',
         ],
         'Sales Staff' => [
             'dashboard.view', 'customers.view', 'customers.manage',
@@ -116,6 +116,12 @@ class Auth{
         ];
     }
 
+    public static function permissions(): array
+    {
+        $role = self::user()['role'] ?? '';
+        return self::PERMISSIONS[$role] ?? [];
+    }
+
     public static function canStockOut(): bool
     {
         return self::can('stock.out');
@@ -179,6 +185,18 @@ class Auth{
     public static function canManageRecords(): bool
     {
         return self::can('records.manage');
+    }
+
+    public static function canDeleteBiddingDocuments(): bool
+    {
+        $role = self::user()['role'] ?? '';
+        return in_array($role, ['Administrator', 'Manager'], true);
+    }
+
+    public static function canDeletePurchaseRecords(): bool
+    {
+        $role = self::user()['role'] ?? '';
+        return in_array($role, ['Administrator', 'Manager'], true);
     }
 
     public static function requireLogin()

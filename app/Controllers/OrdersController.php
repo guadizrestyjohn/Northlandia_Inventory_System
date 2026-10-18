@@ -15,6 +15,7 @@ class OrdersController extends BaseController
             'canCreateOrders' => Auth::can('orders.create'),
             'canUpdateOrders' => Auth::can('orders.update'),
             'canRecordPayments' => Auth::can('orders.payment'),
+            'canApproveReadyMadeOrders' => Auth::can('job_orders.approval'),
         ]);
     }
 }

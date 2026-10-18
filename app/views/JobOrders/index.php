@@ -10,6 +10,9 @@ $canEndorseJobOrders = $canEndorseJobOrders ?? false;
 $canManageProduction = $canManageProduction ?? false;
 $canSetProductionTimeframe = $canSetProductionTimeframe ?? false;
 $canCompleteProduction = $canCompleteProduction ?? false;
+$canReportProductionOutput = $canReportProductionOutput ?? false;
+$canViewProductionOutputHistory = $canViewProductionOutputHistory ?? false;
+$productionTeams = $productionTeams ?? [];
 $canManageJobOrders = $canApproveJobOrders || $canEndorseJobOrders || $canManageProduction;
 $linkedOrderIds = array_map(
     static fn($job) => (string) $job->order_id,
@@ -35,6 +38,18 @@ $linkedOrderIds = array_map(
                 </div>
             <?php endif; ?>
         <?php endforeach; ?>
+
+        <div class="form-row justify-content-end mb-3">
+            <div class="form-group col-sm-6 col-md-4 col-lg-3 mb-0">
+                <label for="job-order-status-filter">Filter by Status</label>
+                <select id="job-order-status-filter" class="form-control">
+                    <option value="">All Statuses</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Processing">Processing</option>
+                    <option value="Released">Released</option>
+                </select>
+            </div>
+        </div>
 
         <div class="table-responsive">
             <table id="job-orders-table" class="table table-bordered table-hover" data-can-create="<?= $canCreateJobOrders ? '1' : '0' ?>" data-can-approval="<?= $canApproveJobOrders ? '1' : '0' ?>" data-can-endorse="<?= $canEndorseJobOrders ? '1' : '0' ?>" data-can-timeframe="<?= $canSetProductionTimeframe ? '1' : '0' ?>" data-can-complete="<?= $canCompleteProduction ? '1' : '0' ?>">
@@ -71,6 +86,14 @@ $linkedOrderIds = array_map(
             <div class="modal-body">
                 <div class="form-group">
                     <label for="job-order-order-id">Pending Order</label>
+                    <input
+                        type="search"
+                        class="form-control mb-2"
+                        id="job-order-order-search"
+                        placeholder="Search by Order number, customer, or product"
+                        aria-label="Search eligible Orders"
+                        autocomplete="off"
+                    >
                     <select
                         class="form-control"
                         id="job-order-order-id"
@@ -128,6 +151,41 @@ $linkedOrderIds = array_map(
 
             <div class="modal-body">
                 <div class="row mb-3" id="manage-job-order-details"></div>
+                <?php if ($canViewProductionOutputHistory): ?><div class="mb-3" id="job-order-production-outputs-wrap">
+                    <h6>Reported Production Output</h6>
+                    <div id="job-order-production-outputs" class="small text-muted">Loading production output…</div>
+                </div><?php endif; ?>
+                <?php if ($canReportProductionOutput): ?>
+                <form class="border rounded p-3 mb-4" method="post" action="<?= BASE_URL ?>/api/JobOrders/reportOutput" id="production-output-form">
+                    <h6>Report Finished Output</h6>
+                    <input type="hidden" name="job_order_id" class="manage-job-order-id">
+                    <input type="hidden" name="submission_key" value="">
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label>Actual Product Name</label>
+                            <input class="form-control" name="product_name" maxlength="100" required>
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label>Product Description</label>
+                            <input class="form-control" name="item_description" maxlength="255" required>
+                        </div>
+                        <div class="form-group col-md-4">
+                            <label>Width (cm)</label>
+                            <input class="form-control" name="width_cm" type="number" min="0.01" max="99999999.99" step="0.01" required>
+                        </div>
+                        <div class="form-group col-md-4">
+                            <label>Height (cm)</label>
+                            <input class="form-control" name="height_cm" type="number" min="0.01" max="99999999.99" step="0.01" required>
+                        </div>
+                        <div class="form-group col-md-4">
+                            <label>Finished Quantity</label>
+                            <input class="form-control" name="reported_quantity" type="number" min="1" step="1" required>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" type="submit">Report Output</button>
+                    <small class="form-text text-muted">Reporting output does not change inventory. Inventory Staff must verify and receive it separately.</small>
+                </form>
+                <?php endif; ?>
                 <hr>
 
                 <?php if ($canApproveJobOrders): ?><form
@@ -150,20 +208,35 @@ $linkedOrderIds = array_map(
                 </form>
                 <?php endif; ?>
 
-                <?php if ($canEndorseJobOrders): ?><form
+                <?php if ($canEndorseJobOrders && $productionTeams !== []): ?><form
                     class="form-row align-items-end mb-4"
                     method="post"
                     action="<?= BASE_URL ?>/api/JobOrders/endorse"
                 >
                     <input type="hidden" name="job_order_id" class="manage-job-order-id">
-                    <div class="form-group col-md-8">
-                        <label>Production Assignment</label>
-                        <input class="form-control" name="production_assignment" placeholder="Production team" required>
+                    <div class="form-group col-md-5">
+                        <label>Responsible Worker / Trade / Contractor</label>
+                        <input class="form-control" name="production_assignment" maxlength="100" placeholder="e.g., Carpenter, Welder, or contractor" required>
                     </div>
-                    <div class="form-group col-md-4">
+                    <div class="form-group col-md-5">
+                        <label>Production Team</label>
+                        <select class="form-control" name="assigned_team" required>
+                            <option value="">Select Production Team</option>
+                            <?php foreach ($productionTeams as $team): ?>
+                                <option value="<?= htmlspecialchars((string) $team, ENT_QUOTES, 'UTF-8') ?>">
+                                    <?= htmlspecialchars((string) $team, ENT_QUOTES, 'UTF-8') ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-2">
                         <button class="btn btn-info btn-block" type="submit">Endorse to Production</button>
                     </div>
                 </form>
+                <?php elseif ($canEndorseJobOrders): ?>
+                    <div class="alert alert-warning" role="alert">
+                        No active Production Staff team is available. Assign an active Production Team to a Production Staff account before endorsing Job Orders.
+                    </div>
                 <?php endif; ?>
 
                 <?php if ($canSetProductionTimeframe): ?><form
@@ -189,7 +262,7 @@ $linkedOrderIds = array_map(
                 </form>
                 <?php endif; ?>
 
-<?php if ($canCompleteProduction): ?><form class="mt-3" method="post" action="<?= BASE_URL ?>/api/JobOrders/complete" id="job-order-complete-form">
+                <?php if ($canCompleteProduction): ?><form class="mt-3" method="post" action="<?= BASE_URL ?>/api/JobOrders/complete" id="job-order-complete-form">
                     <input type="hidden" name="job_order_id" class="manage-job-order-id">
                     <button class="btn btn-success" type="submit" id="job-order-complete">
                         Mark Production Finished

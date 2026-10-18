@@ -1,10 +1,8 @@
 <div class="north-auth-shell">
     <div class="north-auth-brand">
-        <div class="north-auth-brand-icon">
-            <i class="fas fa-warehouse"></i>
-        </div>
+        <img class="north-auth-brand-icon" src="<?= BASE_URL ?>/assets/northlandia_logo_transparent.png" alt="Northlandia logo">
         <div class="north-auth-brand-copy">
-            <span class="north-auth-brand-title">NORTHLANDIA</span>
+            <span class="north-auth-brand-title">NORTHLANDIA ENTERPRISES</span>
             <span class="north-auth-brand-subtitle">Inventory System</span>
         </div>
     </div>

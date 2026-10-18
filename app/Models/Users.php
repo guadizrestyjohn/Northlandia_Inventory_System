@@ -10,7 +10,8 @@ class Users extends Model
     public function find(): array
     {
         $stmt = $this->db->query(
-            'SELECT u.user_id, u.username, u.full_name, u.role_id, r.role_name, u.status
+            'SELECT u.user_id, u.username, u.full_name, u.role_id, r.role_name,
+                    u.production_team, u.status
              FROM users u
              INNER JOIN roles r ON r.role_id = u.role_id
              ORDER BY u.user_id DESC'
@@ -32,10 +33,56 @@ class Users extends Model
         return $stmt->fetch() ?: null;
     }
 
+    public function productionTeams(): array
+    {
+        $teams = $this->db->query(
+            "SELECT DISTINCT u.production_team
+             FROM users u
+             INNER JOIN roles r ON r.role_id = u.role_id
+             WHERE r.role_name = 'Production Staff'
+               AND u.status = 'Active'
+               AND u.production_team IS NOT NULL
+               AND TRIM(u.production_team) <> ''
+             ORDER BY u.production_team"
+        )->fetchAll();
+
+        $result = [];
+        foreach ($teams as $team) {
+            $name = trim((string) $team->production_team);
+            if ($name !== '' && !in_array($name, $result, true)) {
+                $result[] = $name;
+            }
+        }
+
+        return $result;
+    }
+
+    public function productionTeamExists(string $team): bool
+    {
+        $team = trim($team);
+        if ($team === '') {
+            return false;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT 1
+             FROM users u
+             INNER JOIN roles r ON r.role_id = u.role_id
+             WHERE r.role_name = 'Production Staff'
+               AND u.status = 'Active'
+               AND u.production_team = ?
+             LIMIT 1"
+        );
+        $stmt->execute([$team]);
+
+        return (bool) $stmt->fetchColumn();
+    }
+
     public function findByID(int $userId): ?object
     {
         $stmt = $this->db->prepare(
-            'SELECT u.user_id, u.username, u.full_name, u.role_id, r.role_name, u.status
+            'SELECT u.user_id, u.username, u.full_name, u.role_id, r.role_name,
+                    u.production_team, u.status
              FROM users u
              INNER JOIN roles r ON r.role_id = u.role_id
              WHERE u.user_id = ?'
@@ -68,14 +115,15 @@ class Users extends Model
 
         try {
             $stmt = $this->db->prepare(
-                'INSERT INTO users (username, password, full_name, role_id, status)
-                 VALUES (?, ?, ?, ?, ?)'
+                'INSERT INTO users (username, password, full_name, role_id, production_team, status)
+                 VALUES (?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $data['username'],
                 password_hash($data['password'], PASSWORD_DEFAULT),
                 $data['full_name'],
                 (int) $data['role_id'],
+                $data['production_team'] !== '' ? $data['production_team'] : null,
                 $data['status'],
             ]);
 
@@ -111,8 +159,12 @@ class Users extends Model
                 return ['success' => false, 'message' => 'The last active Administrator cannot be deactivated or reassigned.', 'status' => 409];
             }
 
-            $sql = 'UPDATE users SET username = ?, full_name = ?, role_id = ?, status = ?';
-            $params = [$data['username'], $data['full_name'], (int) $data['role_id'], $data['status']];
+            $sql = 'UPDATE users SET username = ?, full_name = ?, role_id = ?, production_team = ?, status = ?';
+            $params = [
+                $data['username'], $data['full_name'], (int) $data['role_id'],
+                $data['production_team'] !== '' ? $data['production_team'] : null,
+                $data['status'],
+            ];
             if (($data['password'] ?? '') !== '') {
                 $sql .= ', password = ?';
                 $params[] = password_hash($data['password'], PASSWORD_DEFAULT);
@@ -205,6 +257,7 @@ class Users extends Model
                 u.full_name,
                 u.role_id,
                 r.role_name,
+                u.production_team,
                 u.status
              FROM users u
              INNER JOIN roles r

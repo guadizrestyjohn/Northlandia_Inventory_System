@@ -30,22 +30,34 @@ unset($_SESSION['success'], $_SESSION['error']);
 
         <?php endforeach; ?>
 
+        <div class="form-row justify-content-end mb-3">
+            <div class="form-group col-sm-6 col-md-4 col-lg-3 mb-0">
+                <label for="order-status-filter">Filter by Status</label>
+                <select id="order-status-filter" class="form-control">
+                    <option value="">All Statuses</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Processing">Processing</option>
+                    <option value="Completed">Completed</option>
+                </select>
+            </div>
+        </div>
+
 
         <div class="table-responsive">
 
-            <table id="orders-table" class="table table-bordered table-hover" data-can-create="<?= ($canCreateOrders ?? false) ? '1' : '0' ?>" data-can-update="<?= ($canUpdateOrders ?? false) ? '1' : '0' ?>" data-can-payment="<?= ($canRecordPayments ?? false) ? '1' : '0' ?>">
+            <table id="orders-table" class="table table-bordered table-hover" data-can-create="<?= ($canCreateOrders ?? false) ? '1' : '0' ?>" data-can-update="<?= ($canUpdateOrders ?? false) ? '1' : '0' ?>" data-can-payment="<?= ($canRecordPayments ?? false) ? '1' : '0' ?>" data-can-approve-ready-made="<?= ($canApproveReadyMadeOrders ?? false) ? '1' : '0' ?>">
 
                 <thead>
                     <tr>
-                        <th>Order No.</th>
+                        <th>Order ID</th>
                         <th>Customer</th>
                         <th>Date</th>
                         <th>Product</th>
-                        <th>Quantity</th>
-                        <th>Specifications</th>
-                        <th>Order Total</th>
-                        <th>Tax Details</th>
+                        <th>Pieces / Quantity</th>
+                        <th>Unit Price</th>
+                        <th>Total Amount</th>
                         <th>Downpayment</th>
+                        <th>Balance</th>
                         <th>Delivery</th>
                         <th>Status</th>
                         <th>Action</th>
@@ -94,6 +106,24 @@ unset($_SESSION['success'], $_SESSION['error']);
                     <dt class="col-sm-4">Payment Status</dt>
                     <dd class="col-sm-8" id="order-payment-status">—</dd>
                 </dl>
+
+                <div class="border rounded p-3 mb-4 d-none" id="ready-made-approval-panel">
+                    <div class="mb-2"><strong>Customer Approval:</strong> <span id="ready-made-approval-status">—</span></div>
+                    <?php if ($canApproveReadyMadeOrders ?? false): ?>
+                    <form id="ready-made-approval-form">
+                        <input type="hidden" id="ready-made-approval-order-id">
+                        <div class="form-group">
+                            <label for="ready-made-approval-decision">Record customer decision</label>
+                            <select class="form-control" id="ready-made-approval-decision" name="customer_approval" required>
+                                <option value="">Select decision</option>
+                                <option value="Approved">Approved</option>
+                                <option value="Rejected">Rejected</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">Save Approval</button>
+                    </form>
+                    <?php endif; ?>
+                </div>
 
                 <h6>Receipt History</h6>
                 <div class="table-responsive mb-4">
@@ -232,24 +262,45 @@ unset($_SESSION['success'], $_SESSION['error']);
                 </div>
 
 
-                <!-- Product -->
+                <!-- Product Type -->
 
                 <div class="form-group">
 
+                    <label for="order-product-type">Product Type</label>
+                    <select class="form-control" id="order-product-type" name="product_type" required>
+                        <option value="">Select Product Type</option>
+                        <option value="Ready-Made">Ready-Made</option>
+                        <option value="Custom-Made">Custom-Made</option>
+                    </select>
+                    <small class="form-text text-muted" id="order-legacy-product-note"></small>
+
+                </div>
+
+                <!-- Product -->
+
+                <div class="form-group d-none" id="order-inventory-product-group">
+
                     <label for="order-product">
-                        Product Name
+                        Inventory Product
                     </label>
 
+                    <select class="form-control" id="order-product" name="inventory_id">
+                        <option value="">Select Product</option>
+                    </select>
+                    <small class="form-text text-muted">Each inventory item is listed separately with its dimensions.</small>
+
+                </div>
+
+                <div class="form-group d-none" id="order-custom-product-group">
+                    <label for="order-custom-product">Custom Product Name</label>
                     <input
                         class="form-control"
-                        id="order-product"
-                        name="product_name"
+                        id="order-custom-product"
+                        name="custom_product_name"
                         type="text"
                         maxlength="100"
-                        placeholder="e.g. Door"
-                        required
+                        placeholder="Enter custom product name"
                     >
-                    
 
                 </div>
 
@@ -267,8 +318,9 @@ unset($_SESSION['success'], $_SESSION['error']);
                         id="order-quantity"
                         name="quantity"
                         type="number"
-                        min="0.01"
-                        step="0.01"
+                        min="1"
+                        max="99999999"
+                        step="1"
                         required
                     >
 
@@ -279,7 +331,7 @@ unset($_SESSION['success'], $_SESSION['error']);
 
                 <div class="form-group">
 
-                    <label for="order-specifications">
+                    <label for="order-specifications" id="order-specifications-label">
                         Specifications
                     </label>
 
@@ -289,6 +341,34 @@ unset($_SESSION['success'], $_SESSION['error']);
                         name="specifications"
                         rows="3"
                     ></textarea>
+                    <small class="form-text text-muted" id="order-specifications-help">
+                        Optional for Ready-Made Orders. Custom-Made Orders require one clear dimension in centimeters (for example, 90x210 cm).
+                    </small>
+
+                </div>
+
+
+                <!-- Unit Price -->
+
+                <div class="form-group">
+
+                    <label for="order-unit-price">
+                        Unit Price (VAT-inclusive)
+                    </label>
+
+                    <input
+                        class="form-control"
+                        id="order-unit-price"
+                        name="unit_price"
+                        type="number"
+                        min="0.01"
+                        max="99999999.99"
+                        step="0.01"
+                        required
+                    >
+                    <small class="form-text text-muted" id="order-unit-price-help">
+                        Agreed price for one piece, including VAT.
+                    </small>
 
                 </div>
 
@@ -298,7 +378,7 @@ unset($_SESSION['success'], $_SESSION['error']);
                 <div class="form-group">
 
                     <label for="order-total" id="order-total-label">
-                        Agreed Order Total
+                        Total Amount (VAT-inclusive)
                     </label>
 
                     <input
@@ -309,9 +389,10 @@ unset($_SESSION['success'], $_SESSION['error']);
                         min="0.01"
                         step="0.01"
                         required
+                        readonly
                     >
                     <small class="form-text text-muted" id="order-total-help">
-                        Enter the agreed Order Total. This project has no product price catalog to calculate it automatically.
+                        Calculated as Unit Price × Pieces.
                     </small>
 
                 </div>
@@ -328,6 +409,12 @@ unset($_SESSION['success'], $_SESSION['error']);
                     </dl>
                 </div>
                 <div class="alert alert-warning d-none" id="order-tax-warning" role="alert"></div>
+
+                <div class="form-group">
+                    <label for="order-balance-preview">Balance</label>
+                    <input class="form-control" id="order-balance-preview" type="text" readonly value="—">
+                    <small class="form-text text-muted">Total Amount less all recorded payments.</small>
+                </div>
 
 
                 <!-- Downpayment -->
@@ -386,37 +473,6 @@ unset($_SESSION['success'], $_SESSION['error']);
 
 
                 <!-- Status -->
-
-                <div class="form-group">
-
-                    <label for="order-status">
-                        Status
-                    </label>
-
-                    <select
-                        class="form-control"
-                        id="order-status"
-                        name="status"
-                    >
-
-                        <option value="Pending">
-                            Pending
-                        </option>
-
-                        <option value="Cancelled">
-                            Cancelled
-                        </option>
-
-                    </select>
-
-                    <small
-                        class="form-text text-muted"
-                        id="order-status-help"
-                    >
-                        New orders start as Pending.
-                    </small>
-
-                </div>
 
 
                 <input

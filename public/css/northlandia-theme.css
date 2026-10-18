@@ -38,8 +38,24 @@ body.northlandia-auth {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #091b2d 0%, #12355d 50%, #1d4c7d 100%);
+    background-color: #091b2d;
+    isolation: isolate;
     padding: 30px 18px;
+}
+
+body.northlandia-auth::before {
+    content: "";
+    position: fixed;
+    inset: -8px;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(135deg, rgba(5, 15, 27, 0.72), rgba(8, 28, 49, 0.56)),
+        url("../assets/login-furniture-background.png");
+    background-position: center, center;
+    background-size: cover, cover;
+    background-repeat: no-repeat, no-repeat;
+    filter: blur(5px);
 }
 
 img,
@@ -202,15 +218,12 @@ input {
 }
 
 .north-brand-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
+    display: block;
+    flex: 0 0 auto;
+    width: 52px;
     height: 38px;
-    border-radius: 12px;
-    background: rgba(31, 115, 190, 0.22);
-    color: #fff;
-    font-size: 1.1rem;
+    border-radius: 6px;
+    object-fit: contain;
 }
 
 .north-brand-copy {
@@ -783,51 +796,54 @@ input {
 }
 
 .north-auth-shell {
+    position: relative;
+    z-index: 1;
     max-width: 460px;
     width: 100%;
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(9, 27, 45, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.22);
     border-radius: 24px;
-    box-shadow: 0 28px 60px rgba(7, 16, 28, 0.28);
-    padding: 24px;
+    box-shadow: 0 28px 60px rgba(7, 16, 28, 0.42);
+    padding: clamp(18px, 4vw, 28px);
+    color: #fff;
 }
 
 .north-auth-brand {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    margin-bottom: 22px;
-    color: var(--north-primary);
+    gap: 16px;
+    margin-bottom: 24px;
+    color: #fff;
 }
 
 .north-auth-brand-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, var(--north-primary), var(--north-accent));
-    color: #fff;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
+    display: block;
+    flex: 0 0 auto;
+    width: 104px;
+    height: 66px;
+    border-radius: 6px;
+    object-fit: contain;
 }
 
 .north-auth-brand-copy {
     display: flex;
+    min-width: 0;
     flex-direction: column;
     line-height: 1.1;
 }
 
 .north-auth-brand-title {
     font-weight: 800;
-    letter-spacing: 0.12em;
-    font-size: 0.82rem;
+    letter-spacing: 0.055em;
+    font-size: clamp(0.9rem, 2.8vw, 1.08rem);
+    white-space: nowrap;
 }
 
 .north-auth-brand-subtitle {
-    color: var(--north-muted);
-    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.76);
+    font-size: 0.86rem;
+    margin-top: 5px;
 }
 
 .north-auth-card {
@@ -836,11 +852,20 @@ input {
     box-shadow: none;
 }
 
+.north-auth-card .card-body {
+    padding: 0;
+}
+
 .north-auth-card .card-title,
 .north-auth-card h3 {
-    color: var(--north-primary);
+    color: #fff;
     font-weight: 800;
     margin-bottom: 10px;
+}
+
+.north-auth-card .text-muted,
+.north-auth-form .form-label {
+    color: rgba(255, 255, 255, 0.82) !important;
 }
 
 .north-auth-form .form-control {
@@ -961,6 +986,10 @@ body.north-sidebar-collapsed .north-nav-link {
 
 body.north-sidebar-collapsed .north-brand {
     justify-content: center;
+}
+
+body.north-sidebar-collapsed .north-brand-icon {
+    width: 44px;
 }
 
 body.north-sidebar-collapsed .north-user-pill {
@@ -1183,6 +1212,37 @@ body.north-sidebar-collapsed .north-user-pill {
 }
 
 @media (max-width: 480px) {
+    body.northlandia-auth {
+        padding: 20px 12px;
+    }
+
+    .north-auth-shell {
+        border-radius: 20px;
+        padding: 20px 18px;
+    }
+
+    .north-auth-brand {
+        flex-direction: column;
+        gap: 9px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+
+    .north-auth-brand-icon {
+        width: 128px;
+        height: 76px;
+    }
+
+    .north-auth-brand-title {
+        font-size: clamp(0.82rem, 4.5vw, 1rem);
+        letter-spacing: 0.035em;
+        white-space: normal;
+    }
+
+    .north-auth-brand-subtitle {
+        font-size: 0.84rem;
+    }
+
     .north-topbar {
         padding: 10px;
     }
@@ -1229,5 +1289,11 @@ body.north-sidebar-collapsed .north-user-pill {
     .modal-footer .btn {
         max-width: 100%;
         white-space: normal;
+    }
+}
+
+@media (max-height: 650px) {
+    body.northlandia-auth {
+        align-items: flex-start;
     }
 }

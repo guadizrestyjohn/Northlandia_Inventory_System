@@ -3,10 +3,12 @@
 namespace Models;
 
 use Core\Model;
-use PDOException;
+use Throwable;
 
 class Records extends Model
 {
+    private const BIDDING_UPLOAD_MAX_BYTES = 10485760;
+    private const BIDDING_UPLOAD_DIRECTORY = '/storage/bidding_documents';
     private const FILTERABLE_TYPES = [
         'Purchase',
         'Sales',
@@ -17,6 +19,7 @@ class Records extends Model
         'Stock In',
         'Stock Out',
         'Job Order',
+        'Photo Documentation',
     ];
 
     private const STATUSES = [
@@ -65,9 +68,11 @@ class Records extends Model
         if (!empty($filters['keyword'])) {
             $sql .= ' AND (reference_no LIKE ? OR description LIKE ? OR customer_name LIKE ?
                 OR supplier_name LIKE ? OR title LIKE ? OR client_name LIKE ?
-                OR item_name LIKE ? OR product_name LIKE ? OR CAST(record_id AS CHAR) LIKE ?)';
+                OR item_name LIKE ? OR product_name LIKE ? OR CAST(record_id AS CHAR) LIKE ?
+                OR document_type LIKE ? OR record_remarks LIKE ? OR attachment_name LIKE ?)';
             $keyword = '%' . $filters['keyword'] . '%';
-            array_push($params, $keyword, $keyword, $keyword, $keyword, $keyword, $keyword, $keyword, $keyword, $keyword);
+            array_push($params, $keyword, $keyword, $keyword, $keyword, $keyword, $keyword,
+                $keyword, $keyword, $keyword, $keyword, $keyword, $keyword);
         }
 
         $sql .= ' ORDER BY record_date DESC, record_id DESC, record_type ASC';
@@ -89,6 +94,79 @@ class Records extends Model
         return $stmt->fetchAll();
     }
 
+    public function savePhoto(array $upload, int $userId, string $remarks = ''): array
+    {
+        $error = (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($error !== UPLOAD_ERR_OK) {
+            return ['success' => false, 'message' => $error === UPLOAD_ERR_NO_FILE
+                ? 'Take or select a photo first.'
+                : 'The photo upload failed. Please try again.'];
+        }
+        $tmpName = $upload['tmp_name'] ?? '';
+        $size = $upload['size'] ?? 0;
+        $originalName = $upload['name'] ?? '';
+        if (!is_string($tmpName) || !is_uploaded_file($tmpName) || !is_numeric($size)
+            || (int) $size < 1 || (int) $size > 10485760 || !is_string($originalName)) {
+            return ['success' => false, 'message' => 'Photos must be valid image files no larger than 10 MB.'];
+        }
+
+        $mimeType = (new \finfo(FILEINFO_MIME_TYPE))->file($tmpName);
+        $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+        if (!isset($extensions[$mimeType])) {
+            return ['success' => false, 'message' => 'Only JPEG, PNG, and WebP photos are allowed.'];
+        }
+
+        $directory = BASE_PATH . '/storage/photo_documentation';
+        if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
+            return ['success' => false, 'message' => 'The photo could not be stored. Please contact an administrator.'];
+        }
+        try {
+            $storedName = bin2hex(random_bytes(16)) . '.' . $extensions[$mimeType];
+        } catch (Throwable $e) {
+            return ['success' => false, 'message' => 'The photo could not be stored. Please try again.'];
+        }
+        if (!move_uploaded_file($tmpName, $directory . DIRECTORY_SEPARATOR . $storedName)) {
+            return ['success' => false, 'message' => 'The photo could not be stored. Please try again.'];
+        }
+
+        try {
+            $stmt = $this->db->prepare(
+                'INSERT INTO photo_documentation_records
+                    (storage_name, original_name, mime_type, file_extension, file_size, uploaded_by, remarks)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $storedName,
+                mb_substr(basename(str_replace('\\', '/', $originalName)), 0, 255),
+                $mimeType,
+                $extensions[$mimeType],
+                (int) $size,
+                $userId > 0 ? $userId : null,
+            ]);
+            return ['success' => true, 'message' => 'Photo saved and available in System Records.'];
+        } catch (Throwable $e) {
+            @unlink($directory . DIRECTORY_SEPARATOR . $storedName);
+            error_log('Photo documentation database save failed.');
+            return ['success' => false, 'message' => 'The photo could not be saved. Please try again.'];
+        }
+    }
+
+    public function photoDocumentation(int $id): ?object
+    {
+        $stmt = $this->db->prepare('SELECT * FROM photo_documentation_records WHERE photo_id = ?');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public function storedPhotoPath(string $storedName): ?string
+    {
+        if (!preg_match('/^[a-f0-9]{32}\\.(jpg|png|webp)$/', $storedName)) {
+            return null;
+        }
+        $path = BASE_PATH . '/storage/photo_documentation/' . $storedName;
+        return is_file($path) ? $path : null;
+    }
+
     public function findDocument($id, string $type): ?object
     {
         $definition = $this->documentDefinition($type);
@@ -104,7 +182,32 @@ class Records extends Model
         return $stmt->fetch() ?: null;
     }
 
-    public function saveDocument(?int $id, array $data, int $userId): array
+    public function previewDocumentReference(string $type): ?string
+    {
+        if (!in_array($type, ['Purchase', 'Bidding Document'], true)) {
+            return null;
+        }
+
+        $year = date('Y');
+        $lockName = $this->documentReferenceLockName($type, $year);
+        $lockAcquired = false;
+        try {
+            $lockAcquired = $this->acquireDocumentReferenceLock($lockName);
+            if (!$lockAcquired) {
+                return null;
+            }
+            return $this->nextDocumentReference($type, $year);
+        } catch (Throwable $e) {
+            error_log('Record reference preview failed for type ' . $type . '.');
+            return null;
+        } finally {
+            if ($lockAcquired) {
+                $this->releaseDocumentReferenceLock($lockName);
+            }
+        }
+    }
+
+    public function saveDocument(?int $id, array $data, int $userId, ?array $upload = null): array
     {
         $type = trim((string) ($data['record_type'] ?? ''));
         $definition = $this->documentDefinition($type);
@@ -123,27 +226,34 @@ class Records extends Model
                 'message' => 'Only Purchase and Bidding Document records can be added here.',
             ];
         }
+        if ($id !== null && $type === 'Invoice') {
+            return [
+                'success' => false,
+                'status' => 403,
+                'message' => 'Invoice Records cannot be edited.',
+            ];
+        }
+        if ($id !== null && $type === 'Sales') {
+            return [
+                'success' => false,
+                'status' => 403,
+                'message' => 'Sales Records cannot be edited.',
+            ];
+        }
 
-        $reference = trim((string) ($data['reference_no'] ?? ''));
+        $reference = '';
         $dateValue = trim((string) ($data['record_date'] ?? ''));
-        $status = trim((string) ($data['status'] ?? 'Recorded'));
+        $status = $type === 'Purchase' ? 'Recorded' : trim((string) ($data['status'] ?? 'Recorded'));
         $description = trim((string) ($data['description'] ?? ''));
         $amountInput = trim((string) ($data['amount'] ?? ''));
         $orderIdInput = trim((string) ($data['order_id'] ?? ''));
 
-        if ($reference === '' || strlen($reference) > 50) {
-            return ['success' => false, 'message' => 'Reference number is required and must be 50 characters or fewer.'];
-        }
         if (!$this->isValidDate($dateValue)) {
             return ['success' => false, 'message' => 'Enter a valid record date.'];
         }
-        if (!in_array($status, self::STATUSES, true)) {
-            return ['success' => false, 'message' => 'Select a valid record status.'];
-        }
-
         $amount = null;
         if ($definition['requires_amount']) {
-            if ($amountInput === '' || !is_numeric($amountInput)
+            if (!$this->isValidRecordAmount($amountInput)
                 || !is_finite((float) $amountInput) || (float) $amountInput < 0
                 || (float) $amountInput > 99999999.99
             ) {
@@ -151,7 +261,7 @@ class Records extends Model
             }
             $amount = (float) $amountInput;
         } elseif ($amountInput !== '') {
-            if (!is_numeric($amountInput) || !is_finite((float) $amountInput)
+            if (!$this->isValidRecordAmount($amountInput) || !is_finite((float) $amountInput)
                 || (float) $amountInput < 0 || (float) $amountInput > 99999999.99
             ) {
                 return ['success' => false, 'message' => 'Enter a valid non-negative amount.'];
@@ -159,14 +269,54 @@ class Records extends Model
             $amount = (float) $amountInput;
         }
 
-        if ($type === 'Purchase' && trim((string) ($data['items_details'] ?? $description)) === '') {
-            return ['success' => false, 'message' => 'Purchase item details are required.'];
+        if ($type === 'Purchase') {
+            $purchaseDetails = trim((string) ($data['items_details'] ?? $description));
+            if ($purchaseDetails === '') {
+                return ['success' => false, 'message' => 'Purchase item details are required.'];
+            }
+            if (mb_strlen($purchaseDetails) > 10000) {
+                return ['success' => false, 'message' => 'Purchase item details must be 10,000 characters or fewer.'];
+            }
+            if (mb_strlen(trim((string) ($data['remarks'] ?? ''))) > 10000) {
+                return ['success' => false, 'message' => 'Purchase remarks must be 10,000 characters or fewer.'];
+            }
+            if (mb_strlen(trim((string) ($data['supplier_name'] ?? ''))) > 150) {
+                return ['success' => false, 'message' => 'Supplier must be 150 characters or fewer.'];
+            }
         }
         if ($type === 'Bidding Document' && trim((string) ($data['title'] ?? '')) === '') {
             return ['success' => false, 'message' => 'Bidding document title is required.'];
         }
         if ($type === 'Bidding Document' && mb_strlen(trim((string) $data['title'])) > 150) {
             return ['success' => false, 'message' => 'Bidding document title must be 150 characters or fewer.'];
+        }
+        if ($type === 'Purchase') {
+            $quantity = trim((string) ($data['quantity'] ?? ''));
+            if (!preg_match('/^[1-9]\d{0,7}$/', $quantity)) {
+                return ['success' => false, 'message' => 'Purchase quantity must be a whole number greater than 0.'];
+            }
+            if (trim((string) ($data['supplier_name'] ?? '')) === '') {
+                return ['success' => false, 'message' => 'Supplier is required.'];
+            }
+        }
+        if ($type === 'Bidding Document'
+            && trim((string) ($data['document_type'] ?? '')) === '') {
+            return ['success' => false, 'message' => 'Bidding document type is required.'];
+        }
+        if ($type === 'Bidding Document'
+            && mb_strlen(trim((string) $data['document_type'])) > 80) {
+            return ['success' => false, 'message' => 'Bidding document type must be 80 characters or fewer.'];
+        }
+        if ($type === 'Bidding Document') {
+            if (mb_strlen($description) > 10000) {
+                return ['success' => false, 'message' => 'Bidding document description must be 10,000 characters or fewer.'];
+            }
+            if (mb_strlen(trim((string) ($data['remarks'] ?? ''))) > 10000) {
+                return ['success' => false, 'message' => 'Bidding document remarks must be 10,000 characters or fewer.'];
+            }
+            if (mb_strlen(trim((string) ($data['client_name'] ?? ''))) > 150) {
+                return ['success' => false, 'message' => 'Client name must be 150 characters or fewer.'];
+            }
         }
 
         $orderId = null;
@@ -192,14 +342,96 @@ class Records extends Model
             }
         }
 
-        $duplicate = $this->db->prepare(
-            'SELECT ' . $definition['id'] . ' FROM ' . $definition['table'] . '
-             WHERE reference_no = ? AND (? IS NULL OR ' . $definition['id'] . ' <> ?)
-             LIMIT 1'
-        );
-        $duplicate->execute([$reference, $id, $id]);
-        if ($duplicate->fetch()) {
-            return ['success' => false, 'status' => 409, 'message' => 'That reference number is already used for this record type.'];
+        $existing = null;
+        if ($id !== null) {
+            $existing = $this->findDocument($id, $type);
+            if (!$existing) {
+                return ['success' => false, 'status' => 404, 'message' => 'Record not found or cannot be edited.'];
+            }
+            // Reference numbers are immutable after creation, even if a caller tampers with the form.
+            $reference = (string) $existing->reference_no;
+            if ($reference === '' || strlen($reference) > 50) {
+                return ['success' => false, 'message' => 'The existing reference number is invalid.'];
+            }
+        }
+
+        if ($type === 'Bidding Document') {
+            if ($existing !== null) {
+                $status = (string) $existing->status;
+            } else {
+                // Bidding Documents have no configured status lifecycle; new records are recorded.
+                $status = 'Recorded';
+            }
+        } elseif (!in_array($status, self::STATUSES, true)) {
+            return ['success' => false, 'message' => 'Select a valid record status.'];
+        }
+
+        if ($type === 'Sales' && $orderId !== null) {
+            $duplicateSales = $this->db->prepare(
+                'SELECT sales_record_id FROM sales_records
+                 WHERE order_id = ? AND sales_record_id <> ?
+                 LIMIT 1'
+            );
+            $duplicateSales->execute([$orderId, $id ?? 0]);
+            if ($duplicateSales->fetch()) {
+                return [
+                    'success' => false,
+                    'status' => 409,
+                    'message' => 'A Sales Record already exists for this Order.',
+                ];
+            }
+        }
+
+        if ($id === null) {
+            $reference = 'Generating...';
+        } else {
+            $duplicate = $this->db->prepare(
+                'SELECT ' . $definition['id'] . ' FROM ' . $definition['table'] . '
+                 WHERE reference_no = ? AND ' . $definition['id'] . ' <> ?
+                 LIMIT 1'
+            );
+            $duplicate->execute([$reference, $id]);
+            if ($duplicate->fetch()) {
+                return ['success' => false, 'status' => 409, 'message' => 'That reference number is already used for this record type.'];
+            }
+        }
+
+        $uploadedFile = null;
+        if ($type === 'Bidding Document' && $upload !== null) {
+            $uploadedFile = $this->storeBiddingUpload($upload);
+            if (isset($uploadedFile['error'])) {
+                return ['success' => false, 'message' => $uploadedFile['error']];
+            }
+        } elseif ($upload !== null) {
+            return ['success' => false, 'message' => 'Attachments are only supported for Bidding Documents.'];
+        }
+
+        $referenceLockName = null;
+        $transactionStarted = false;
+        if ($id === null) {
+            $year = date('Y');
+            $referenceLockName = $this->documentReferenceLockName($type, $year);
+            try {
+                if (!$this->acquireDocumentReferenceLock($referenceLockName)) {
+                    if ($uploadedFile !== null) {
+                        $this->removeStoredBiddingUpload($uploadedFile['path']);
+                    }
+                    return ['success' => false, 'status' => 500, 'message' => 'Unable to reserve a reference number. Please try again.'];
+                }
+                $this->db->beginTransaction();
+                $transactionStarted = true;
+                $reference = $this->nextDocumentReference($type, $year);
+            } catch (Throwable $e) {
+                if ($transactionStarted && $this->db->inTransaction()) {
+                    $this->db->rollBack();
+                }
+                $this->releaseDocumentReferenceLock($referenceLockName);
+                if ($uploadedFile !== null) {
+                    $this->removeStoredBiddingUpload($uploadedFile['path']);
+                }
+                error_log('Record reference generation failed for type ' . $type . '.');
+                return ['success' => false, 'status' => 500, 'message' => 'Unable to generate a reference number. Please try again.'];
+            }
         }
 
         $fields = $definition['fields'];
@@ -212,15 +444,23 @@ class Records extends Model
                 'amount' => $amount,
                 'status' => $status,
                 'items_details' => trim((string) ($data['items_details'] ?? $description)),
+                'quantity' => $type === 'Purchase' ? (int) ($data['quantity'] ?? 0) : null,
+                'remarks' => in_array($type, ['Purchase', 'Bidding Document'], true)
+                    ? $this->nullableString($data['remarks'] ?? null, 10000)
+                    : null,
                 'description' => $description !== '' ? $description : null,
                 'supplier_name' => $this->nullableString($data['supplier_name'] ?? null, 150),
                 'title' => trim((string) ($data['title'] ?? '')),
+                'document_type' => trim((string) ($data['document_type'] ?? '')),
+                'attachment_path' => $uploadedFile['path'] ?? ($existing->attachment_path ?? null),
+                'attachment_name' => $uploadedFile['name'] ?? ($existing->attachment_name ?? null),
                 'client_name' => $this->nullableString($data['client_name'] ?? null, 150),
                 'created_by' => $userId > 0 ? $userId : null,
                 default => null,
             };
         }
 
+        $success = false;
         try {
             if ($id === null) {
                 $columns = implode(', ', $fields);
@@ -231,9 +471,6 @@ class Records extends Model
                 );
                 $success = $stmt->execute($values);
             } else {
-                if (!$this->findDocument($id, $type)) {
-                    return ['success' => false, 'status' => 404, 'message' => 'Record not found or cannot be edited.'];
-                }
                 $fieldValues = array_combine($fields, $values);
                 $updateFields = array_values(array_diff($fields, ['created_by']));
                 $updateValues = array_map(
@@ -247,15 +484,243 @@ class Records extends Model
                 );
                 $success = $stmt->execute(array_merge($updateValues, [$id]));
             }
-        } catch (PDOException $e) {
+            if ($transactionStarted) {
+                if ($success) {
+                    $this->db->commit();
+                } else {
+                    $this->db->rollBack();
+                }
+                $transactionStarted = false;
+            }
+        } catch (Throwable $e) {
+            if ($transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+                $transactionStarted = false;
+            }
+            if ($referenceLockName !== null) {
+                $this->releaseDocumentReferenceLock($referenceLockName);
+                $referenceLockName = null;
+            }
+            if ($uploadedFile !== null) {
+                $this->removeStoredBiddingUpload($uploadedFile['path']);
+            }
+            if (($e->getCode() ?? '') === '23000') {
+                if ($type === 'Sales' && $orderId !== null) {
+                    try {
+                        $duplicateSales = $this->db->prepare(
+                            'SELECT sales_record_id FROM sales_records
+                             WHERE order_id = ? AND sales_record_id <> ?
+                             LIMIT 1'
+                        );
+                        $duplicateSales->execute([$orderId, $id ?? 0]);
+                        if ($duplicateSales->fetch()) {
+                            return [
+                                'success' => false,
+                                'status' => 409,
+                                'message' => 'A Sales Record already exists for this Order.',
+                            ];
+                        }
+                    } catch (Throwable $checkError) {
+                        error_log('Sales order duplicate check failed after a database conflict.');
+                    }
+                }
+                return ['success' => false, 'status' => 409, 'message' => 'That reference number is already used for this record type.'];
+            }
+            error_log('Record save failed for type ' . $type . '.');
             return ['success' => false, 'status' => 500, 'message' => 'Unable to save this record.'];
+        }
+
+        if ($referenceLockName !== null) {
+            $this->releaseDocumentReferenceLock($referenceLockName);
+        }
+
+        if (!$success && $uploadedFile !== null) {
+            $this->removeStoredBiddingUpload($uploadedFile['path']);
+        }
+
+        if ($success && $uploadedFile !== null && $existing && !empty($existing->attachment_path)) {
+            $this->removeStoredBiddingUpload((string) $existing->attachment_path);
         }
 
         return [
             'success' => $success,
             'status' => $success ? 200 : 500,
             'message' => $success ? 'Record saved successfully.' : 'Unable to save this record.',
+            'reference_no' => $success ? $reference : null,
         ];
+    }
+
+    public function deleteDocument(int $id, string $type): array
+    {
+        $definition = $this->documentDefinition($type);
+        if ($id < 1 || $definition === null || !in_array($type, ['Purchase', 'Bidding Document'], true)) {
+            return ['success' => false, 'message' => 'Only Purchase and Bidding Document records can be deleted.'];
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $stmt = $this->db->prepare(
+                'SELECT * FROM ' . $definition['table'] . ' WHERE ' . $definition['id'] . ' = ? FOR UPDATE'
+            );
+            $stmt->execute([$id]);
+            $record = $stmt->fetch();
+            if (!$record) {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 404, 'message' => 'Record not found.'];
+            }
+
+            $delete = $this->db->prepare(
+                'DELETE FROM ' . $definition['table'] . ' WHERE ' . $definition['id'] . ' = ?'
+            );
+            $delete->execute([$id]);
+            if ($delete->rowCount() !== 1) {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'The record could not be deleted. Refresh the Records table and try again.'];
+            }
+            $this->db->commit();
+        } catch (PDOException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('Record delete failed for type ' . $type . '.');
+            return ['success' => false, 'status' => 500, 'message' => 'Unable to delete this record.'];
+        }
+
+        if ($type === 'Bidding Document' && !empty($record->attachment_path)) {
+            $this->removeStoredBiddingUpload((string) $record->attachment_path);
+        }
+
+        return ['success' => true, 'message' => 'Record deleted successfully.'];
+    }
+
+    private function storeBiddingUpload(array $upload): array
+    {
+        $error = $upload['error'] ?? UPLOAD_ERR_NO_FILE;
+        if (!is_int($error) && !ctype_digit((string) $error)) {
+            return ['error' => 'The selected attachment is invalid.'];
+        }
+        $error = (int) $error;
+        if ($error === UPLOAD_ERR_NO_FILE) {
+            return ['error' => 'No attachment was selected.'];
+        }
+        if ($error !== UPLOAD_ERR_OK) {
+            return ['error' => 'The attachment could not be uploaded. Please try again.'];
+        }
+
+        $tmpName = $upload['tmp_name'] ?? '';
+        $size = $upload['size'] ?? 0;
+        $originalName = $upload['name'] ?? '';
+        if (!is_string($tmpName) || !is_string($originalName) || !is_numeric($size)
+            || (int) $size < 1 || (int) $size > self::BIDDING_UPLOAD_MAX_BYTES
+            || !is_uploaded_file($tmpName)) {
+            return ['error' => 'Attachments must be valid files no larger than 10 MB.'];
+        }
+
+        $safeName = basename(str_replace('\\', '/', $originalName));
+        $extension = strtolower(pathinfo($safeName, PATHINFO_EXTENSION));
+        $allowedMimeTypes = [
+            'pdf' => ['application/pdf'],
+            'doc' => ['application/msword', 'application/x-ole-storage'],
+            'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip', 'application/x-zip-compressed'],
+            'xls' => ['application/vnd.ms-excel', 'application/x-ole-storage'],
+            'xlsx' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip', 'application/x-zip-compressed'],
+        ];
+        if (!isset($allowedMimeTypes[$extension])) {
+            return ['error' => 'Only PDF, DOC, DOCX, XLS, and XLSX attachments are allowed.'];
+        }
+
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($tmpName);
+        if (!in_array($mime, $allowedMimeTypes[$extension], true)) {
+            return ['error' => 'The attachment content does not match an allowed document type.'];
+        }
+
+        $directory = BASE_PATH . self::BIDDING_UPLOAD_DIRECTORY;
+        if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
+            return ['error' => 'The attachment could not be stored. Please contact an administrator.'];
+        }
+
+        try {
+            $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+        } catch (\Throwable $e) {
+            return ['error' => 'The attachment could not be stored. Please try again.'];
+        }
+        if (!move_uploaded_file($tmpName, $directory . DIRECTORY_SEPARATOR . $storedName)) {
+            return ['error' => 'The attachment could not be stored. Please try again.'];
+        }
+
+        return [
+            'path' => $storedName,
+            'name' => mb_substr($safeName, 0, 255),
+        ];
+    }
+
+    public function biddingAttachment(int $id): ?object
+    {
+        return $this->findDocument($id, 'Bidding Document');
+    }
+
+    public function storedBiddingAttachmentPath(string $storedName): ?string
+    {
+        if (!preg_match('/^[a-f0-9]{32}\.(pdf|doc|docx|xls|xlsx)$/', $storedName)) {
+            return null;
+        }
+        $path = BASE_PATH . self::BIDDING_UPLOAD_DIRECTORY . DIRECTORY_SEPARATOR . $storedName;
+        return is_file($path) ? $path : null;
+    }
+
+    private function removeStoredBiddingUpload(string $storedName): void
+    {
+        $path = $this->storedBiddingAttachmentPath($storedName);
+        if ($path !== null && !unlink($path)) {
+            error_log('Bidding document attachment cleanup failed.');
+        }
+    }
+
+    private function documentReferenceLockName(string $type, string $year): string
+    {
+        $prefix = $type === 'Purchase' ? 'PUR' : 'BID';
+        return 'northlandia_record_ref_' . strtolower($prefix) . '_' . $year;
+    }
+
+    private function acquireDocumentReferenceLock(string $lockName): bool
+    {
+        $stmt = $this->db->prepare('SELECT GET_LOCK(?, 10)');
+        $stmt->execute([$lockName]);
+        return (int) $stmt->fetchColumn() === 1;
+    }
+
+    private function releaseDocumentReferenceLock(string $lockName): void
+    {
+        try {
+            $stmt = $this->db->prepare('SELECT RELEASE_LOCK(?)');
+            $stmt->execute([$lockName]);
+            if ((int) $stmt->fetchColumn() !== 1) {
+                error_log('Record reference lock release did not confirm success.');
+            }
+        } catch (Throwable $e) {
+            error_log('Record reference lock release failed.');
+        }
+    }
+
+    private function nextDocumentReference(string $type, string $year): string
+    {
+        $config = match ($type) {
+            'Purchase' => ['prefix' => 'PUR', 'table' => 'purchase_records'],
+            'Bidding Document' => ['prefix' => 'BID', 'table' => 'bidding_document_records'],
+            default => throw new \InvalidArgumentException('Unsupported record type.'),
+        };
+
+        $pattern = '^' . $config['prefix'] . '-' . preg_quote($year, '/') . '-[0-9]+$';
+        $stmt = $this->db->prepare(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(reference_no, '-', -1) AS UNSIGNED)), 0)
+             FROM {$config['table']}
+             WHERE reference_no REGEXP ?"
+        );
+        $stmt->execute([$pattern]);
+        $sequence = (int) $stmt->fetchColumn() + 1;
+
+        return sprintf('%s-%s-%03d', $config['prefix'], $year, $sequence);
     }
 
     private function documentDefinition(string $type): ?array
@@ -264,7 +729,7 @@ class Records extends Model
             'Purchase' => [
                 'table' => 'purchase_records', 'id' => 'purchase_record_id',
                 'requires_amount' => true, 'requires_order' => false, 'requires_completed_order' => false,
-                'fields' => ['reference_no', 'supplier_name', 'purchase_date', 'items_details', 'amount', 'status', 'created_by'],
+                'fields' => ['reference_no', 'supplier_name', 'purchase_date', 'items_details', 'quantity', 'amount', 'remarks', 'status', 'created_by'],
             ],
             'Sales' => [
                 'table' => 'sales_records', 'id' => 'sales_record_id',
@@ -284,7 +749,7 @@ class Records extends Model
             'Bidding Document' => [
                 'table' => 'bidding_document_records', 'id' => 'bidding_document_record_id',
                 'requires_amount' => false, 'requires_order' => false, 'requires_completed_order' => false,
-                'fields' => ['reference_no', 'title', 'client_name', 'submission_date', 'status', 'description', 'created_by'],
+                'fields' => ['reference_no', 'title', 'document_type', 'client_name', 'submission_date', 'status', 'description', 'remarks', 'attachment_path', 'attachment_name', 'created_by'],
             ],
         ];
 
@@ -295,6 +760,11 @@ class Records extends Model
     {
         $parsed = \DateTime::createFromFormat('!Y-m-d', $date);
         return $parsed && $parsed->format('Y-m-d') === $date;
+    }
+
+    private function isValidRecordAmount(string $amount): bool
+    {
+        return (bool) preg_match('/^\d{1,8}(?:\.\d{1,2})?$/', $amount);
     }
 
     private function nullableString($value, int $maxLength): ?string
@@ -323,10 +793,9 @@ class Records extends Model
 
         return "SELECT records.*,
             CASE WHEN records.record_type = 'Job Order' THEN (
-                SELECT release_tx.transaction_date
-                FROM stock_transactions release_tx
+                SELECT release_tx.released_at
+                FROM job_order_releases release_tx
                 WHERE release_tx.job_order_id = records.record_id
-                  AND release_tx.transaction_type = 'Stock Out'
                 LIMIT 1
             ) ELSE NULL END AS released_at
         FROM (
@@ -345,7 +814,7 @@ class Records extends Model
                    NULL AS title,
                    NULL AS client_name,
                    NULL AS product_name,
-                   NULL AS quantity,
+                   pr.quantity AS quantity,
                    NULL AS downpayment,
                    NULL AS delivery_method,
                    NULL AS customer_approval,
@@ -354,7 +823,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    NULL AS item_name,
                    NULL AS specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   pr.remarks AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
             FROM purchase_records pr
             LEFT JOIN users u ON u.user_id = pr.created_by
 
@@ -365,7 +839,10 @@ class Records extends Model
                    sr.reference_no,
                    sr.sales_date AS record_date,
                    sr.description,
-                   sr.amount,
+                   COALESCE(
+                       sr.amount,
+                       CASE WHEN o.status = 'Completed' THEN o.order_total ELSE NULL END
+                   ) AS amount,
                    sr.order_id,
                    c.customer_name,
                    sr.status,
@@ -384,7 +861,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    NULL AS item_name,
                    o.specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   NULL AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
             FROM sales_records sr
             LEFT JOIN orders o ON o.order_id = sr.order_id
             LEFT JOIN customers c ON c.customer_id = o.customer_id
@@ -401,7 +883,7 @@ class Records extends Model
                    CONCAT_WS(' | ', CONCAT('Product: ', o.product_name),
                        CONCAT('Quantity: ', TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(o.quantity AS CHAR)))), NULLIF(o.specifications, ''),
                        CONCAT('Delivery: ', COALESCE(o.delivery_method, 'Not specified'))) AS description,
-                   NULL AS amount,
+                   o.order_total AS amount,
                    o.order_id,
                    c.customer_name,
                    o.status,
@@ -420,7 +902,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    NULL AS item_name,
                    o.specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   NULL AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
             FROM orders o
             INNER JOIN customers c ON c.customer_id = o.customer_id
             WHERE o.status = 'Completed'
@@ -456,7 +943,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    NULL AS item_name,
                    o.specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   NULL AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   rr.payment_type AS payment_type,
+                   NULL AS assigned_team
             FROM receipt_records rr
             LEFT JOIN orders o ON o.order_id = rr.order_id
             LEFT JOIN customers c ON c.customer_id = o.customer_id
@@ -488,7 +980,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    NULL AS item_name,
                    o.specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   NULL AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
             FROM invoice_records ir
             LEFT JOIN orders o ON o.order_id = ir.order_id
             LEFT JOIN customers c ON c.customer_id = o.customer_id
@@ -520,7 +1017,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    NULL AS item_name,
                    NULL AS specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   bdr.remarks AS record_remarks,
+                   bdr.document_type AS document_type,
+                   bdr.attachment_name AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
             FROM bidding_document_records bdr
             LEFT JOIN users u ON u.user_id = bdr.created_by
 
@@ -553,7 +1055,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    NULL AS item_name,
                    o.specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   NULL AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
             FROM orders o
             INNER JOIN customers c ON c.customer_id = o.customer_id
 
@@ -584,7 +1091,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    i.item_name,
                    NULL AS specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   NULL AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
             FROM stock_transactions st
             INNER JOIN inventory_items i ON i.inventory_id = st.inventory_id
             LEFT JOIN users u ON u.user_id = st.user_id
@@ -620,7 +1132,12 @@ class Records extends Model
                    NULL AS production_end_date,
                    i.item_name,
                    NULL AS specifications,
-                   NULL AS production_completed_at
+                   NULL AS production_completed_at,
+                   NULL AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
             FROM stock_transactions st
             INNER JOIN inventory_items i ON i.inventory_id = st.inventory_id
             LEFT JOIN users u ON u.user_id = st.user_id
@@ -655,10 +1172,50 @@ class Records extends Model
                    j.production_end_date,
                    NULL AS item_name,
                    o.specifications,
-                   j.production_completed_at
+                   j.production_completed_at,
+                   NULL AS record_remarks,
+                   NULL AS document_type,
+                   NULL AS attachment_name,
+                   NULL AS payment_type,
+                   j.assigned_team AS assigned_team
             FROM job_orders j
             INNER JOIN orders o ON o.order_id = j.order_id
             INNER JOIN customers c ON c.customer_id = o.customer_id
+
+            UNION ALL
+
+            SELECT 'Photo Documentation' AS record_type,
+                   p.photo_id AS record_id,
+                   CONCAT('PHOTO-', LPAD(p.photo_id, GREATEST(4, CHAR_LENGTH(p.photo_id)), '0')) AS reference_no,
+                   DATE(p.created_at) AS record_date,
+                   p.original_name AS description,
+                   NULL AS amount,
+                   NULL AS order_id,
+                   NULL AS customer_name,
+                   'Recorded' AS status,
+                   u.full_name AS created_by_name,
+                   p.created_at,
+                   NULL AS supplier_name,
+                   p.original_name AS title,
+                   NULL AS client_name,
+                   NULL AS product_name,
+                   NULL AS quantity,
+                   NULL AS downpayment,
+                   NULL AS delivery_method,
+                   NULL AS customer_approval,
+                   NULL AS production_assignment,
+                   NULL AS production_start_date,
+                   NULL AS production_end_date,
+                   NULL AS item_name,
+                   NULL AS specifications,
+                   NULL AS production_completed_at,
+                   p.remarks AS record_remarks,
+                   p.mime_type AS document_type,
+                   p.original_name AS attachment_name,
+                   NULL AS payment_type,
+                   NULL AS assigned_team
+            FROM photo_documentation_records p
+            LEFT JOIN users u ON u.user_id = p.uploaded_by
         ) AS records";
     }
 

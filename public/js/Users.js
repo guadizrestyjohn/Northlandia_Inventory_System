@@ -18,6 +18,8 @@ const UsersModule = (function () {
         password: '#user-password',
         passwordHelp: '#user-password-help',
         role: '#user-role',
+        productionTeam: '#user-production-team',
+        productionTeamGroup: '#user-production-team-group',
         status: '#user-status'
     };
 
@@ -50,6 +52,8 @@ const UsersModule = (function () {
             'submit',
             submitForm
         );
+
+        $(s.role).on('change', toggleProductionTeam);
     }
 
     function showAddModal(e) {
@@ -185,6 +189,9 @@ const UsersModule = (function () {
                 : ''
         );
 
+        $(s.productionTeam).val(editing ? (user.production_team || '') : '');
+        toggleProductionTeam();
+
         $(s.status).val(
             editing
                 ? user.status
@@ -208,6 +215,13 @@ const UsersModule = (function () {
                 'Create User'
             );
         }
+    }
+
+    function toggleProductionTeam() {
+        const isProductionStaff = $(s.role).find('option:selected').text().trim() === 'Production Staff';
+        $(s.productionTeamGroup).prop('hidden', !isProductionStaff);
+        $(s.productionTeam).prop('disabled', !isProductionStaff);
+        if (!isProductionStaff) $(s.productionTeam).val('');
     }
 
     function submitForm(e) {
@@ -298,6 +312,17 @@ const UsersModule = (function () {
                     render: window.renderTableText
                 },
                 {
+                    data: 'production_team',
+                    defaultContent: '—',
+                    render: function (value, type, user) {
+                        const hasTeam = value !== null && value !== undefined && String(value).trim() !== '';
+                        const displayValue = hasTeam
+                            ? value
+                            : (user.role_name === 'Production Staff' ? 'Production Staff' : '—');
+                        return window.renderTableText(displayValue, type);
+                    }
+                },
+                {
                     data: 'status',
                     render: window.renderTableText
                 },
@@ -311,6 +336,12 @@ const UsersModule = (function () {
                         type,
                         user
                     ) {
+                        const canManageAllUserRoles = $(s.table).attr('data-can-manage-all-user-roles') === '1';
+                        const protectedRoles = ['Administrator', 'Manager'];
+                        if (!canManageAllUserRoles && protectedRoles.includes(user.role_name)) {
+                            return '—';
+                        }
+
                         let statusAction =
                             'Activate';
 

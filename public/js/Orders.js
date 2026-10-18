@@ -9,6 +9,7 @@ const OrdersModule = (function () {
         modal: '#order-modal',
         paymentsModal: '#order-payments-modal',
         paymentForm: '#order-payment-form',
+        readyMadeApprovalForm: '#ready-made-approval-form',
         newBtn: '#btn-add-order',
         saveBtn: '#order-save',
         modalTitle: '#order-modal-title',
@@ -17,10 +18,18 @@ const OrdersModule = (function () {
         customer: '#order-customer',
         customerSearch: '#order-customer-search',
         date: '#order-date',
+        productType: '#order-product-type',
         product: '#order-product',
+        inventoryProductGroup: '#order-inventory-product-group',
+        customProductGroup: '#order-custom-product-group',
+        customProduct: '#order-custom-product',
+        legacyProductNote: '#order-legacy-product-note',
         quantity: '#order-quantity',
+        unitPrice: '#order-unit-price',
+        unitPriceHelp: '#order-unit-price-help',
         specifications: '#order-specifications',
         orderTotal: '#order-total',
+        balancePreview: '#order-balance-preview',
         downpayment: '#order-downpayment',
         delivery: '#order-delivery',
         status: '#order-status',
@@ -38,6 +47,10 @@ const OrdersModule = (function () {
     let customerSearchRequest = null;
     let customerSearchTimer = null;
     let currentTaxConfiguration = null;
+    let ordersTable = null;
+    let orderStatusFilter = '';
+    let unitPriceMode = true;
+    let existingTotalPaidCents = 0;
 
     function init() {
         bindEvents();
@@ -57,9 +70,18 @@ const OrdersModule = (function () {
         $(s.table).on('click', '.js-order-payments', handlePayments);
         $(s.form).on('submit', submitForm);
         $(s.paymentForm).on('submit', submitPayment);
+        $(s.readyMadeApprovalForm).on('submit', submitReadyMadeApproval);
+        $('#order-status-filter').on('change', function () {
+            orderStatusFilter = String(this.value || '');
+            applyOrderStatusFilter();
+        });
         $(s.modal).on('hidden.bs.modal', resetForm);
         $(s.customerSearch).on('input', searchCustomers);
+        $(s.productType).on('change', updateProductFields);
         $(s.orderTotal).on('input', updateTaxPreview);
+        $(s.unitPrice).on('input', updateTaxPreview);
+        $(s.quantity).on('input', updateTaxPreview);
+        $(s.downpayment).on('input', updateTaxPreview);
         $(s.customer).on('change', function () {
             const option = this.options[this.selectedIndex];
             const selectedCustomer = $(this).val();
@@ -92,7 +114,14 @@ const OrdersModule = (function () {
 
         $(s.statusHelp).text('New orders start as Pending.');
 
+        unitPriceMode = true;
+        existingTotalPaidCents = 0;
+        $(s.unitPrice).prop('disabled', false).prop('required', true).prop('readonly', false);
+        $(s.orderTotal).prop('readonly', true);
+        $(s.unitPriceHelp).text('Agreed price for one piece, including VAT.');
+
         loadDefaultCustomers();
+        loadProducts();
         loadTaxConfiguration();
         $(s.modal).modal('show');
     }
@@ -115,11 +144,12 @@ const OrdersModule = (function () {
                     return;
                 }
 
-                fillOrder(res);
-
-                $(s.modalTitle).text('Edit Order');
-                $(s.saveBtn).text('Update Order');
-                $(s.modal).modal('show');
+                loadProducts(function () {
+                    fillOrder(res);
+                    $(s.modalTitle).text('Edit Order');
+                    $(s.saveBtn).text('Update Order');
+                    $(s.modal).modal('show');
+                });
             })
             .fail((xhr) => {
                 handleAjaxError(xhr);
@@ -130,9 +160,51 @@ const OrdersModule = (function () {
         $(s.id).val(order.order_id);
         setCustomerOption(order.customer_id, order.customer_name);
         $(s.date).val(order.order_date || '');
-        $(s.product).val(order.product_name || '');
+        $(s.productType).empty()
+            .append($('<option>').val('').text('Select Product Type'))
+            .append($('<option>').val('Ready-Made').text('Ready-Made'))
+            .append($('<option>').val('Custom-Made').text('Custom-Made'));
+        if (!order.product_type && !order.inventory_id) {
+            $(s.productType).append($('<option>').val('legacy').text('Legacy Order — unclassified'));
+            $(s.productType).val('legacy');
+        } else {
+            $(s.productType).val(order.product_type || '');
+        }
+        if (order.product_type === 'Ready-Made') {
+            $(s.product).val(String(order.inventory_id || ''));
+            if (!$(s.product).val() && order.inventory_id) {
+                const dimensions = order.inventory_width_cm && order.inventory_height_cm
+                    ? `${order.inventory_width_cm}x${order.inventory_height_cm} cm`
+                    : (order.inventory_size || 'Dimensions not specified');
+                $(s.product).append(
+                    $('<option>').val(order.inventory_id).text(
+                        `Item ${order.inventory_id} — ${order.inventory_item_name || order.product_name} · ${dimensions} (current linked item)`
+                    )
+                ).val(String(order.inventory_id));
+            }
+        } else if (order.product_type === 'Custom-Made') {
+            $(s.customProduct).val(order.product_name || '');
+        } else {
+            $(s.customProduct).val('');
+        }
+        updateProductFields();
+        if (!order.product_type && !order.inventory_id) {
+            $(s.legacyProductNote).text(
+                `This existing Order is unclassified. The product “${order.product_name || ''}” will be preserved until you explicitly select a new type.`
+            );
+        }
         $(s.quantity).val(window.formatQuantity(order.quantity));
         $(s.specifications).val(order.specifications || '');
+        existingTotalPaidCents = toCents(order.total_paid || order.downpayment || '0');
+        unitPriceMode = order.unit_price !== null && order.unit_price !== undefined && order.unit_price !== '';
+        $(s.unitPrice).val(unitPriceMode ? order.unit_price : '')
+            .prop('disabled', !unitPriceMode)
+            .prop('required', unitPriceMode)
+            .prop('readonly', false);
+        $(s.unitPriceHelp).text(unitPriceMode
+            ? 'Agreed price for one piece, including VAT.'
+            : 'No Unit Price was recorded for this historical Order; it remains unchanged.');
+        $(s.orderTotal).prop('readonly', unitPriceMode);
         const hasTaxSnapshot = order.tax_name_snapshot != null
             && order.tax_rate_snapshot != null
             && order.tax_amount_snapshot != null
@@ -142,9 +214,9 @@ const OrdersModule = (function () {
             configureTaxPreview({
                 tax_name: order.tax_name_snapshot,
                 tax_rate: String(order.tax_rate_snapshot),
-                calculation_mode: order.tax_calculation_mode_snapshot
+                calculation_mode: unitPriceMode ? 'Inclusive' : order.tax_calculation_mode_snapshot
             });
-            $(s.orderTotal).val(order.tax_calculation_mode_snapshot === 'Exclusive'
+            $(s.orderTotal).val(!unitPriceMode && order.tax_calculation_mode_snapshot === 'Exclusive'
                 ? order.subtotal_before_tax_snapshot
                 : order.order_total);
             updateTaxPreview();
@@ -155,8 +227,11 @@ const OrdersModule = (function () {
             $(s.totalLabel).text('Order Total');
             $(s.totalHelp).text('Legacy Order total. Historical Orders are not recalculated using current Tax Settings.');
         }
+        if (unitPriceMode) updateTaxPreview();
+        else updateBalancePreview();
         $(s.downpayment).val(order.downpayment || 0);
         $(s.downpayment).prop('readonly', true);
+        updateTaxPreview();
         $(s.delivery).val(order.delivery_method || '');
 
         $(s.status)
@@ -233,7 +308,7 @@ const OrdersModule = (function () {
     function loadOrders() {
         const canUpdate = $(s.table).attr('data-can-update') === '1';
 
-        $(s.table).DataTable({
+        ordersTable = $(s.table).DataTable({
             responsive: true,
             autoWidth: true,
             destroy: true,
@@ -266,23 +341,26 @@ const OrdersModule = (function () {
                     render: window.renderTableQuantity
                 },
                 {
-                    data: 'specifications'
+                    data: null,
+                    render: (_value, type, order) => {
+                        const unitPrice = order.unit_price == null || order.unit_price === ''
+                            ? null
+                            : Number(order.unit_price);
+                        return type === 'display' || type === 'filter'
+                            ? (unitPrice === null ? '—' : formatMoney(unitPrice))
+                            : (unitPrice === null ? '' : unitPrice);
+                    }
                 },
                 {
                     data: 'order_total',
                     render: formatMoney
                 },
                 {
-                    data: null,
-                    render: (_value, type, order) => window.renderTableText(
-                        order.tax_name_snapshot == null
-                            ? '—'
-                            : `${order.tax_name_snapshot} ${Number(order.tax_rate_snapshot).toFixed(2)}%: ${formatMoney(order.tax_amount_snapshot)}`,
-                        type
-                    )
+                    data: 'downpayment',
+                    render: formatMoney
                 },
                 {
-                    data: 'downpayment',
+                    data: 'balance',
                     render: formatMoney
                 },
                 {
@@ -315,8 +393,18 @@ const OrdersModule = (function () {
                         </div>
                     `
                 }
-            ]
+            ],
+            initComplete: applyOrderStatusFilter
         });
+    }
+
+    function applyOrderStatusFilter() {
+        if (!ordersTable) return;
+
+        const search = orderStatusFilter
+            ? `^${$.fn.dataTable.util.escapeRegex(orderStatusFilter)}$`
+            : '';
+        ordersTable.column(11).search(search, true, false).draw();
     }
 
     function handlePayments(event) {
@@ -373,6 +461,20 @@ const OrdersModule = (function () {
         );
         $('#order-payment-status').text(summary.payment_status || 'Unpaid');
         $('#order-total-warning').toggleClass('d-none', orderTotal > 0);
+
+        const approvalPanel = $('#ready-made-approval-panel');
+        const approvalForm = $(s.readyMadeApprovalForm);
+        const isReadyMade = order.product_type === 'Ready-Made';
+        const approval = order.customer_approval || 'Pending';
+        approvalPanel.toggleClass('d-none', !isReadyMade);
+        $('#ready-made-approval-status').text(approval);
+        $('#ready-made-approval-order-id').val(order.order_id || '');
+        $('#ready-made-approval-decision').val('');
+        approvalForm.toggleClass(
+            'd-none',
+            !response.can_approve_ready_made || !isReadyMade
+                || order.status !== 'Pending' || !['Pending', ''].includes(order.customer_approval || '')
+        );
 
         const history = $('#order-payment-history').empty();
         (response.payments || []).forEach((payment) => {
@@ -431,6 +533,30 @@ const OrdersModule = (function () {
             });
     }
 
+    function submitReadyMadeApproval(event) {
+        event.preventDefault();
+        const orderId = $('#ready-made-approval-order-id').val();
+        const formData = new FormData(this);
+        const button = $(this).find('[type="submit"]').prop('disabled', true);
+        $.ajax({
+            url: `${base_url}/api/Orders/readyMadeApproval/${encodeURIComponent(orderId)}`,
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            dataType: 'json'
+        }).done((response) => {
+            showMessage(response.message || 'Customer approval updated.');
+            if (!window.isApiSuccess(response)) return;
+            loadOrders();
+            loadPaymentDetails(orderId);
+        }).fail((xhr) => {
+            handleAjaxError(xhr);
+        }).always(() => {
+            button.prop('disabled', false);
+        });
+    }
+
     function formatMoney(value) {
         const amount = Number(value || 0);
         return `₱${amount.toLocaleString('en-PH', {
@@ -446,9 +572,23 @@ const OrdersModule = (function () {
 
         $(s.form).trigger('reset');
         $(s.id).val('');
+        unitPriceMode = true;
+        existingTotalPaidCents = 0;
         resetCustomerOptions();
+        $(s.productType).empty()
+            .append($('<option>').val('').text('Select Product Type'))
+            .append($('<option>').val('Ready-Made').text('Ready-Made'))
+            .append($('<option>').val('Custom-Made').text('Custom-Made'))
+            .val('');
+        $(s.product).val('');
+        $(s.customProduct).val('');
+        updateProductFields();
 
         $(s.orderTotal).val('');
+        $(s.orderTotal).prop('readonly', true);
+        $(s.unitPrice).val('').prop('disabled', false).prop('required', true).prop('readonly', false);
+        $(s.unitPriceHelp).text('Agreed price for one piece, including VAT.');
+        $(s.balancePreview).val('—');
         $(s.downpayment).val(0);
         $(s.downpayment).prop('readonly', false);
 
@@ -468,6 +608,60 @@ const OrdersModule = (function () {
         $(s.taxWarning).addClass('d-none').text('');
         $(s.taxPreview).addClass('d-none');
         currentTaxConfiguration = null;
+    }
+
+    function loadProducts(onComplete = function () {}) {
+        const select = $(s.product);
+        select.empty().append($('<option>').val('').text('Loading products...'));
+
+        $.ajax({
+            url: `${base_url}/api/Orders/products`,
+            method: 'GET',
+            dataType: 'json'
+        }).done(function (response) {
+            const products = window.apiData(response);
+            select.empty().append($('<option>').val('').text('Select Product'));
+            if (response && response.status !== 'error' && Array.isArray(products)) {
+                products.forEach(function (product) {
+                    const width = product.width_cm || '';
+                    const height = product.height_cm || '';
+                    const dimensions = width && height
+                        ? `${width}x${height} cm`
+                        : (product.size || 'Dimensions not specified');
+                    select.append(
+                        $('<option>')
+                            .val(product.inventory_id)
+                            .text(`Item ${product.inventory_id} — ${product.item_name} · ${dimensions}`)
+                    );
+                });
+            }
+            updateProductFields();
+        }).fail(function () {
+            select.empty().append($('<option>').val('').text('Product list unavailable'));
+            updateProductFields();
+        }).always(onComplete);
+    }
+
+    function updateProductFields() {
+        const type = $(s.productType).val();
+        const readyMade = type === 'Ready-Made';
+        const customMade = type === 'Custom-Made';
+        const legacy = type === 'legacy';
+        $(s.inventoryProductGroup).toggleClass('d-none', !readyMade);
+        $(s.product).prop('disabled', !readyMade).prop('required', readyMade);
+        $(s.customProductGroup).toggleClass('d-none', !customMade);
+        $(s.customProduct).prop('disabled', !customMade).prop('required', customMade);
+        $(s.specifications).prop('required', customMade);
+        $('#order-specifications-help').text(customMade
+            ? 'Required for Custom-Made Orders. Enter one clear dimension in centimeters (for example, 90x210 cm).'
+            : 'Optional for Ready-Made Orders. The selected Inventory item supplies its product name and dimensions.');
+        $(s.legacyProductNote).text(legacy
+            ? 'This existing Order has no saved product type or Inventory link. Its product remains unchanged unless explicitly reclassified.'
+            : '');
+        if (!customMade) {
+            $(s.customProduct).val('');
+        }
+        if (!readyMade) $(s.product).val('');
     }
 
     function loadTaxConfiguration() {
@@ -502,25 +696,59 @@ const OrdersModule = (function () {
     }
 
     function configureTaxPreview(configuration) {
-        currentTaxConfiguration = configuration;
+        currentTaxConfiguration = { ...configuration };
+        if (unitPriceMode) currentTaxConfiguration.calculation_mode = 'Inclusive';
+        configuration = currentTaxConfiguration;
         const mode = configuration.calculation_mode;
-        $(s.totalLabel).text(mode === 'Exclusive'
-            ? `Agreed Subtotal (before ${configuration.tax_name})`
-            : `Agreed Order Total (${configuration.tax_name} inclusive)`);
-        $(s.totalHelp).text(mode === 'Exclusive'
-            ? `Enter the agreed subtotal before ${configuration.tax_name}. Tax will be added to calculate the final payable Order Total.`
-            : `Enter the final agreed Order Total, including ${configuration.tax_name}. The tax portion will be shown below.`);
+        $(s.totalLabel).text(unitPriceMode
+            ? 'Total Amount (VAT-inclusive)'
+            : (mode === 'Exclusive'
+                ? `Agreed Subtotal (before ${configuration.tax_name})`
+                : `Agreed Order Total (${configuration.tax_name} inclusive)`));
+        $(s.totalHelp).text(unitPriceMode
+            ? 'Calculated as Unit Price × Pieces. VAT is included in the Unit Price.'
+            : (mode === 'Exclusive'
+                ? `Enter the agreed subtotal before ${configuration.tax_name}. Tax will be added to calculate the final payable Order Total.`
+                : `Enter the final agreed Order Total, including ${configuration.tax_name}. The tax portion will be shown below.`));
         updateTaxPreview();
         $(s.taxPreview).removeClass('d-none');
     }
 
     function updateTaxPreview() {
-        if (!currentTaxConfiguration) return;
+        if (unitPriceMode) {
+            const unitPriceCents = toCents($(s.unitPrice).val());
+            const quantityText = String($(s.quantity).val() || '').trim();
+            if (unitPriceCents === null || unitPriceCents <= 0 || !/^[1-9]\d{0,7}$/.test(quantityText)) {
+                $(s.orderTotal).val('');
+                $('#order-preview-subtotal, #order-preview-tax, #order-preview-total').text('Enter a valid Unit Price and whole-number quantity');
+                updateBalancePreview(null);
+                return;
+            }
+            const quantity = Number(quantityText);
+            const totalCents = unitPriceCents * quantity;
+            if (!Number.isSafeInteger(totalCents) || totalCents > 9999999999) {
+                $(s.orderTotal).val('');
+                $('#order-preview-subtotal, #order-preview-tax, #order-preview-total').text('Total exceeds the supported amount');
+                updateBalancePreview(null);
+                return;
+            }
+            $(s.orderTotal).val((totalCents / 100).toFixed(2));
+            updateBalancePreview(totalCents);
+            if (!currentTaxConfiguration) return;
+            renderInclusiveTaxPreview(totalCents);
+            return;
+        }
+
+        if (!currentTaxConfiguration) {
+            updateBalancePreview(toCents($(s.orderTotal).val()));
+            return;
+        }
         const amount = String($(s.orderTotal).val() || '').trim();
         const match = amount.match(/^(?:0|[1-9]\d{0,7})(?:\.(\d{1,2}))?$/);
         const rateMatch = String(currentTaxConfiguration.tax_rate).match(/^(\d{1,3})(?:\.(\d{1,2}))?$/);
         if (!match || !rateMatch) {
             $('#order-preview-subtotal, #order-preview-tax, #order-preview-total').text('Enter a valid amount');
+            updateBalancePreview(null);
             return;
         }
         const amountParts = amount.split('.');
@@ -529,6 +757,7 @@ const OrdersModule = (function () {
         const rateBps = Number(rateParts[0]) * 100 + Number((rateParts[1] || '').padEnd(2, '0'));
         if (amountCents <= 0) {
             $('#order-preview-subtotal, #order-preview-tax, #order-preview-total').text('Enter a valid amount');
+            updateBalancePreview(null);
             return;
         }
         let subtotalCents;
@@ -549,6 +778,44 @@ const OrdersModule = (function () {
         $('#order-preview-tax-label').text(taxLabel);
         $('#order-preview-tax').text(money(taxCents));
         $('#order-preview-total').text(money(totalCents));
+        updateBalancePreview(totalCents);
+    }
+
+    function renderInclusiveTaxPreview(grossCents) {
+        const rate = String(currentTaxConfiguration.tax_rate || '');
+        const rateMatch = rate.match(/^(\d{1,3})(?:\.(\d{1,2}))?$/);
+        if (!rateMatch || !currentTaxConfiguration.tax_name) {
+            $('#order-preview-subtotal, #order-preview-tax, #order-preview-total').text('Tax configuration is invalid');
+            return;
+        }
+        const rateParts = rate.split('.');
+        const rateBps = Number(rateParts[0]) * 100 + Number((rateParts[1] || '').padEnd(2, '0'));
+        const denominator = 10000 + rateBps;
+        const taxCents = Math.floor((grossCents * rateBps + Math.floor(denominator / 2)) / denominator);
+        const subtotalCents = grossCents - taxCents;
+        const money = cents => formatMoney((cents / 100).toFixed(2));
+        $('#order-preview-subtotal').text(money(subtotalCents));
+        $('#order-preview-tax-label').text(`${currentTaxConfiguration.tax_name} (${Number(rate).toFixed(2)}%)`);
+        $('#order-preview-tax').text(money(taxCents));
+        $('#order-preview-total').text(money(grossCents));
+    }
+
+    function toCents(value) {
+        const amount = String(value == null ? '' : value).trim();
+        if (!/^(?:0|[1-9]\d{0,7})(?:\.\d{1,2})?$/.test(amount)) return null;
+        const [whole, fraction = ''] = amount.split('.');
+        return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+    }
+
+    function updateBalancePreview(totalCents = toCents($(s.orderTotal).val())) {
+        if (totalCents === null) {
+            $(s.balancePreview).val('—');
+            return;
+        }
+        const paidCents = $(s.id).val()
+            ? existingTotalPaidCents
+            : (toCents($(s.downpayment).val()) || 0);
+        $(s.balancePreview).val(formatMoney(((totalCents - paidCents) / 100).toFixed(2)));
     }
 
     function searchCustomers() {

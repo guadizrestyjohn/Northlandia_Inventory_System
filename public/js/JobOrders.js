@@ -18,6 +18,7 @@ const JobOrdersModule = (function () {
 
         approval: 'select[name="customer_approval"]',
         productionAssignment: 'input[name="production_assignment"]',
+        assignedTeam: 'select[name="assigned_team"]',
 
         timeframeForm: '#job-order-timeframe-form',
         startDate: '#job-order-start-date',
@@ -27,6 +28,7 @@ const JobOrdersModule = (function () {
     };
 
     let table = null;
+    let eligibleOrders = [];
 
     function init() {
         bindEvents();
@@ -37,6 +39,14 @@ const JobOrdersModule = (function () {
         $(s.addButton).on('click', showAddModal);
 
         $(s.addForm).on('submit', submitAddForm);
+        $('#job-order-order-search').on('input', renderEligibleOrders);
+        $('#job-order-status-filter').on('change', function () {
+            if (!table) return;
+
+            const status = String(this.value || '');
+            const search = status ? `^${$.fn.dataTable.util.escapeRegex(status)}$` : '';
+            table.column(8).search(search, true, false).draw();
+        });
 
         $(s.table).on(
             'click',
@@ -53,6 +63,7 @@ const JobOrdersModule = (function () {
             'submit',
             submitManageForm
         );
+
     }
 
     function showAddModal(e) {
@@ -69,6 +80,7 @@ const JobOrdersModule = (function () {
         if (form.length) {
             form[0].reset();
         }
+        eligibleOrders = [];
     }
 
     function loadEligibleOrders() {
@@ -92,21 +104,10 @@ const JobOrdersModule = (function () {
                     return;
                 }
 
-                const orders = window.apiData(response);
-                select.empty().append($('<option>').val('').text('Select Order'));
-                orders.forEach(function (order) {
-                    const label = [
-                        window.formatOrderNumber(order.order_id),
-                        order.customer_name || '',
-                        order.product_name || ''
-                    ].join(' — ');
-                    select.append($('<option>').val(order.order_id).text(label));
-                });
-                if (orders.length === 0) {
-                    select.find('option').first().text('No eligible Pending Orders');
-                }
+                eligibleOrders = window.apiData(response);
+                renderEligibleOrders();
                 select.prop('disabled', false);
-                submitButton.prop('disabled', orders.length === 0);
+                submitButton.prop('disabled', eligibleOrders.length === 0);
             })
             .fail(function (xhr) {
                 handleAjaxError(xhr);
@@ -178,10 +179,12 @@ const JobOrdersModule = (function () {
         fillManageModal(job);
 
         $(s.manageModal).modal('show');
+        loadProductionOutputs(job.job_order_id);
     }
 
     function fillManageModal(job) {
         $(s.manageId).val(job.job_order_id);
+        $('#production-output-form [name="submission_key"]').val(newRequestKey());
 
         $(s.manageNumber).text(window.formatJobOrderNumber(job.job_order_id));
 
@@ -200,6 +203,8 @@ const JobOrdersModule = (function () {
             `${job.production_start_date || 'Not set'} to ${job.production_end_date || 'Not set'}`
         );
         addDetail('Approval', job.customer_approval);
+        addDetail('Responsible Worker / Trade / Contractor', job.production_assignment || 'Not assigned');
+        addDetail('Production Team', job.assigned_team || 'Production Staff');
         addDetail('Status', job.status);
         addDetail(
             'Production Finished',
@@ -218,13 +223,20 @@ const JobOrdersModule = (function () {
             job.created_at || '—'
         );
 
-        $(s.manageModal)
+        const approvalSelect = $(s.manageModal)
             .find(s.approval)
             .val(job.customer_approval);
+        const approvalLocked = job.status !== 'Pending' || job.customer_approval !== 'Pending';
+        approvalSelect.prop('disabled', approvalLocked);
+        approvalSelect.closest('form').find('[type="submit"]').prop('disabled', approvalLocked);
 
         $(s.manageModal)
             .find(s.productionAssignment)
             .val(job.production_assignment || '');
+
+        $(s.manageModal)
+            .find(s.assignedTeam)
+            .val(job.assigned_team || 'Production Staff');
 
         $(s.startDate)
             .val(job.production_start_date || 'Automatic');
@@ -304,6 +316,15 @@ const JobOrdersModule = (function () {
                     response.message || 'Job Order updated.'
                 );
 
+                if (endpoint === 'reportOutput') {
+                    const reportForm = $(form);
+                    const jobOrderId = reportForm.find('[name="job_order_id"]').val();
+                    reportForm[0].reset();
+                    reportForm.find('[name="job_order_id"]').val(jobOrderId);
+                    reportForm.find('[name="submission_key"]').val(newRequestKey());
+                    loadProductionOutputs(reportForm.find('[name="job_order_id"]').val());
+                }
+
                 table.ajax.reload(null, false);
             })
             .fail(function (xhr) {
@@ -312,6 +333,87 @@ const JobOrdersModule = (function () {
             .always(function () {
                 button.prop('disabled', false);
             });
+    }
+
+    function loadProductionOutputs(jobOrderId) {
+        const target = $('#job-order-production-outputs');
+        if (!target.length) return;
+
+        target.text('Loading production output…');
+        $.ajax({
+            url: `${base_url}/api/JobOrders/outputs/${encodeURIComponent(jobOrderId)}`,
+            method: 'GET',
+            dataType: 'json'
+        }).done(function (response) {
+            if (response && response.status === 'error') {
+                target.text(response.message || 'Production output could not be loaded.');
+                return;
+            }
+            const outputs = window.apiData(response);
+            if (!outputs.length) {
+                target.text('No production output has been reported for this Job Order.');
+                return;
+            }
+
+            const tableElement = $('<table class="table table-sm table-bordered mb-0">');
+            tableElement.append('<thead><tr><th>Actual Product</th><th>Dimensions</th><th>Reported</th><th>Received</th><th>Remaining</th><th>Verification</th></tr></thead>');
+            const body = $('<tbody>');
+            outputs.forEach(function (output) {
+                const row = $('<tr>');
+                const values = [
+                    output.product_name || '',
+                    `${output.width_cm} x ${output.height_cm} cm`,
+                    window.formatQuantity(output.reported_quantity),
+                    window.formatQuantity(output.received_quantity),
+                    window.formatQuantity(output.remaining_quantity),
+                    output.verification_status || ''
+                ];
+                values.forEach(value => $('<td>').text(value).appendTo(row));
+                body.append(row);
+            });
+            tableElement.append(body);
+            target.empty().append($('<div class="table-responsive">').append(tableElement));
+        }).fail(function (xhr) {
+            target.text(xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Production output could not be loaded.');
+        });
+    }
+
+    function renderEligibleOrders() {
+        const select = $('#job-order-order-id');
+        if (!select.length) return;
+
+        const query = String($('#job-order-order-search').val() || '').trim().toLocaleLowerCase();
+        const filteredOrders = eligibleOrders.filter(function (order) {
+            const searchableText = [
+                window.formatOrderNumber(order.order_id),
+                order.customer_name || '',
+                order.product_name || ''
+            ].join(' ').toLocaleLowerCase();
+            return searchableText.includes(query);
+        });
+
+        select.empty().append($('<option>').val('').text('Select Order'));
+        filteredOrders.forEach(function (order) {
+            const label = [
+                window.formatOrderNumber(order.order_id),
+                order.customer_name || '',
+                order.product_name || ''
+            ].join(' — ');
+            select.append($('<option>').val(order.order_id).text(label));
+        });
+        if (eligibleOrders.length === 0) {
+            select.find('option').first().text('No eligible Pending Orders');
+        } else if (filteredOrders.length === 0) {
+            select.find('option').first().text('No matching Orders');
+        }
+    }
+
+    function newRequestKey() {
+        if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            const r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
     }
 
     function loadJobOrders() {
@@ -345,9 +447,12 @@ const JobOrdersModule = (function () {
                 render: window.renderTableStatus
             },
             {
-                data: 'production_assignment',
-                defaultContent: 'Not assigned',
-                render: window.renderTableText
+                data: null,
+                render: function (job, type, row) {
+                    const worker = row.production_assignment || 'Not assigned';
+                    const team = row.assigned_team || 'Production Staff';
+                    return window.renderTableText(`${worker} — ${team}`, type);
+                }
             },
             {
                 data: 'production_start_date',

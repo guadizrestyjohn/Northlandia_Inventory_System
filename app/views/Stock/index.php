@@ -48,6 +48,7 @@ unset($_SESSION['success'], $_SESSION['error']);
                         <th>Reference</th>
                         <th>Order No.</th>
                         <th>Job Order No.</th>
+                        <th>Production Output / Release</th>
                         <th>Item</th>
                         <th>Type</th>
                         <th>Quantity</th>

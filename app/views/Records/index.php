@@ -21,6 +21,7 @@ $recordTypes = [
     'Stock In' => 'Stock In History',
     'Stock Out' => 'Stock Out History',
     'Job Order' => 'Job Order History',
+    'Photo Documentation' => 'Photo Documentation',
 ];
 ?>
 
@@ -129,6 +130,8 @@ $recordTypes = [
                 id="records-table"
                 class="table table-bordered table-hover"
                 data-can-manage="<?= $canManageRecords ? '1' : '0' ?>"
+                data-can-delete-bidding="<?= ($canDeleteBiddingDocuments ?? false) ? '1' : '0' ?>"
+                data-can-delete-purchase="<?= ($canDeletePurchaseRecords ?? false) ? '1' : '0' ?>"
             >
                 <thead><tr></tr></thead>
                 <tbody></tbody>
@@ -164,6 +167,7 @@ $recordTypes = [
                 class="modal-content"
                 id="record-form"
                 method="post"
+                enctype="multipart/form-data"
                 action="<?= BASE_URL ?>/api/Records/add"
             >
                 <div class="modal-header">
@@ -196,12 +200,14 @@ $recordTypes = [
                                 id="record-reference"
                                 name="reference_no"
                                 maxlength="50"
+                                placeholder="Generated automatically when saved"
+                                readonly
                                 required
                             >
                         </div>
 
                         <div class="form-group col-md-6" id="record-date-group">
-                            <label for="record-date">Record Date</label>
+                            <label for="record-date" id="record-date-label">Record Date</label>
                             <input class="form-control" id="record-date" name="record_date" type="date" required>
                         </div>
 
@@ -213,6 +219,11 @@ $recordTypes = [
                         <div class="form-group col-md-6" id="record-title-group">
                             <label for="record-title">Bid Title</label>
                             <input class="form-control" id="record-title" name="title" maxlength="150">
+                        </div>
+
+                        <div class="form-group col-md-6" id="record-document-type-group">
+                            <label for="record-document-type">Document Type</label>
+                            <input class="form-control" id="record-document-type" name="document_type" maxlength="80">
                         </div>
 
                         <div class="form-group col-md-6" id="record-client-group">
@@ -262,17 +273,15 @@ $recordTypes = [
                             >
                         </div>
 
+                        <div class="form-group col-md-6" id="record-quantity-group">
+                            <label for="record-quantity">Purchase Quantity</label>
+                            <input class="form-control" id="record-quantity" name="quantity" type="number" min="1" step="1">
+                        </div>
+
                         <div class="form-group col-md-6" id="record-status-group">
                             <label for="record-status-input">Status</label>
                             <select class="form-control" id="record-status-input" name="status" required>
-                                <?php foreach ([
-                                    'Recorded', 'Pending', 'Approved', 'Rejected', 'Processing',
-                                    'Completed', 'Cancelled', 'Ready for Stock Out', 'Ready for Release', 'Released',
-                                ] as $status): ?>
-                                    <option value="<?= htmlspecialchars($status, ENT_QUOTES, 'UTF-8') ?>">
-                                        <?= htmlspecialchars($status, ENT_QUOTES, 'UTF-8') ?>
-                                    </option>
-                                <?php endforeach; ?>
+                                <option value="Recorded">Recorded</option>
                             </select>
                         </div>
                     </div>
@@ -284,12 +293,32 @@ $recordTypes = [
                             id="record-items-details"
                             name="items_details"
                             rows="4"
+                            maxlength="10000"
                         ></textarea>
                     </div>
 
                     <div class="form-group" id="record-description-group">
                         <label for="record-description">Description / Details</label>
-                        <textarea class="form-control" id="record-description" name="description" rows="4"></textarea>
+                        <textarea class="form-control" id="record-description" name="description" rows="4" maxlength="10000"></textarea>
+                    </div>
+
+                    <div class="form-group" id="record-remarks-group">
+                        <label for="record-remarks">Remarks</label>
+                        <textarea class="form-control" id="record-remarks" name="remarks" rows="3" maxlength="10000"></textarea>
+                    </div>
+
+                    <div class="form-group" id="record-attachment-group">
+                        <label for="record-attachment">Bidding Document Attachment</label>
+                        <input
+                            class="form-control-file"
+                            id="record-attachment"
+                            name="attachment"
+                            type="file"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx"
+                        >
+                        <small class="form-text text-muted" id="record-attachment-current">
+                            PDF, DOC, DOCX, XLS, or XLSX; maximum 10 MB. Leave empty while editing to keep the current attachment.
+                        </small>
                     </div>
 
                     <small class="form-text text-muted">

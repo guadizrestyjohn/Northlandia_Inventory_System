@@ -2,10 +2,11 @@
 
 namespace Api\Reports;
 
-use Api\BaseApiController;
+use Core\Auth;
+use Core\BaseController;
 use Models\Reports;
 
-class ReportsController extends BaseApiController
+class ReportsController extends BaseController
 {
     private $Reports;
 
@@ -21,7 +22,7 @@ class ReportsController extends BaseApiController
 
         $type = $this->queryValue('type');
         if (!in_array($type, ['inventory', 'movements', 'orders'], true)) {
-            $this->respondError('Select a valid report type.', 422);
+            $this->json(['status' => 'error', 'message' => 'Select a valid report type.']);
         }
 
         $filters = [
@@ -34,16 +35,16 @@ class ReportsController extends BaseApiController
         ];
 
         if ($filters['category_id'] !== '' && !ctype_digit($filters['category_id'])) {
-            $this->respondError('Select a valid inventory category.', 422);
+            $this->json(['status' => 'error', 'message' => 'Select a valid inventory category.']);
         }
         foreach (['start_date', 'end_date'] as $dateKey) {
             if ($filters[$dateKey] !== '' && !$this->validDate($filters[$dateKey])) {
-                $this->respondError('Enter a valid report date.', 422);
+                $this->json(['status' => 'error', 'message' => 'Enter a valid report date.']);
             }
         }
         if ($filters['start_date'] !== '' && $filters['end_date'] !== ''
             && $filters['start_date'] > $filters['end_date']) {
-            $this->respondError('The start date must not be after the end date.', 422);
+            $this->json(['status' => 'error', 'message' => 'The start date must not be after the end date.']);
         }
         if ($filters['status'] !== '') {
             $allowedStatuses = [
@@ -55,7 +56,7 @@ class ReportsController extends BaseApiController
                 ],
             ];
             if (!in_array($filters['status'], $allowedStatuses[$type], true)) {
-                $this->respondError('Select a valid report status.', 422);
+                $this->json(['status' => 'error', 'message' => 'Select a valid report status.']);
             }
         }
 
@@ -66,17 +67,17 @@ class ReportsController extends BaseApiController
                 'orders' => $this->Reports->orders($filters),
             };
         } catch (\PDOException $e) {
-            $this->respondError('Unable to load this report right now.', 500);
+            $this->json(['status' => 'error', 'message' => 'Unable to load this report right now.']);
         }
 
-        $this->respond(['data' => $data]);
+        $this->json(['data' => $data]);
     }
 
     private function queryValue(string $key): string
     {
         $value = $_GET[$key] ?? '';
         if (!is_scalar($value)) {
-            $this->respondError('Enter valid report filters.', 400);
+            $this->json(['status' => 'error', 'message' => 'Enter valid report filters.']);
         }
 
         return trim((string) $value);
@@ -86,5 +87,30 @@ class ReportsController extends BaseApiController
     {
         $parsedDate = \DateTime::createFromFormat('!Y-m-d', $date);
         return $parsedDate && $parsedDate->format('Y-m-d') === $date;
+    }
+
+    private function requireLogin(): void
+    {
+        if (!Auth::check()) {
+            $this->json(['status' => 'error', 'message' => 'You must be logged in.']);
+        }
+    }
+
+    private function requirePermission(string $permission): void
+    {
+        $this->requireLogin();
+        if (!Auth::can($permission)) {
+            $this->json([
+                'status' => 'error',
+                'message' => 'You are not authorized to perform this action.',
+            ]);
+        }
+    }
+
+    private function requireGet(): void
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+            $this->json(['status' => 'error', 'message' => 'GET is required.']);
+        }
     }
 }

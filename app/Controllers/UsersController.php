@@ -18,10 +18,16 @@ class UsersController extends BaseController
     public function index(): void
     {
         Auth::requirePermission('users.manage');
+        $roles = array_values(array_filter(
+            $this->Users->findRoles(),
+            static fn($role): bool => Auth::canAssignRole((string) $role->role_name)
+        ));
+
         $this->view('Users/index', [
             'title' => 'User Management',
-            'roles' => $this->Users->findRoles(),
+            'roles' => $roles,
             'statuses' => ['Active', 'Inactive'],
+            'canManageAllUserRoles' => Auth::canManageUserRole('Administrator'),
         ]);
     }
 }

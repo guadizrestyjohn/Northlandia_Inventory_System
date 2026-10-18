@@ -2,13 +2,13 @@
 
 namespace Api\Orders;
 
-use Api\BaseApiController;
+use Core\BaseController;
 use Core\Auth;
 use Models\Customers;
 use Models\Orders;
 use Models\TaxSettings;
 
-class OrdersController extends BaseApiController
+class OrdersController extends BaseController
 {
     private $Orders;
     private $Customers;
@@ -25,7 +25,14 @@ class OrdersController extends BaseApiController
     {
         $this->requirePermission('orders.view');
         $this->requireGet();
-        $this->respond(['data' => $this->Orders->find()]);
+        $this->json(['data' => $this->Orders->find()]);
+    }
+
+    public function products(): void
+    {
+        $this->requirePermission('orders.view');
+        $this->requireGet();
+        $this->json(['data' => $this->Orders->availableProducts()]);
     }
 
     public function customers(): void
@@ -34,18 +41,18 @@ class OrdersController extends BaseApiController
         $this->requireGet();
         $query = $_GET['q'] ?? '';
         if (!is_scalar($query)) {
-            $this->respondError('Enter a valid customer search.', 400);
+            $this->json(['status' => 'error', 'message' => 'Enter a valid customer search.']);
         }
 
         $query = trim((string) $query);
         $orderId = $_GET['order_id'] ?? '';
         if (!is_scalar($orderId)) {
-            $this->respondError('Enter a valid Order No.', 400);
+            $this->json(['status' => 'error', 'message' => 'Enter a valid Order No.']);
         }
 
         $orderId = trim((string) $orderId);
         if ($orderId !== '' && (!ctype_digit($orderId) || (int) $orderId < 1)) {
-            $this->respondError('Enter a valid Order No.', 400);
+            $this->json(['status' => 'error', 'message' => 'Enter a valid Order No.']);
         }
 
         $customers = strlen($query) >= 2
@@ -54,7 +61,7 @@ class OrdersController extends BaseApiController
                 ? $this->Customers->eligibleForOrders()
                 : []);
 
-        $this->respond(['data' => $customers]);
+        $this->json(['data' => $customers]);
     }
 
     public function taxConfiguration(): void
@@ -63,9 +70,9 @@ class OrdersController extends BaseApiController
         $this->requireGet();
         $state = $this->TaxSettings->activeConfiguration();
         if (!$state['configuration']) {
-            $this->respondError($state['message'], 422);
+            $this->json(['status' => 'error', 'message' => $state['message']]);
         }
-        $this->respond(['status' => 'success', 'data' => $state['configuration']]);
+        $this->json(['status' => 'success', 'data' => $state['configuration']]);
     }
 
     public function payment($id): void
@@ -75,22 +82,24 @@ class OrdersController extends BaseApiController
         $this->requirePermission($method === 'POST' ? 'orders.payment' : 'orders.view');
 
         if (!ctype_digit((string) $id) || (int) $id < 1) {
-            $this->respondError('Order not found.', 404);
+            $this->json(['status' => 'error', 'message' => 'Order not found.']);
         }
 
         if ($method === 'GET') {
             $order = $this->Orders->findByID((int) $id);
             if (!$order) {
-                $this->respondError('Order not found.', 404);
+                $this->json(['status' => 'error', 'message' => 'Order not found.']);
             }
 
-            $this->respond([
+            $this->json([
                 'status' => 'success',
                 'data' => [
                     'order' => [
                         'order_id' => (int) $order->order_id,
                         'customer_name' => $order->customer_name ?? null,
                         'product_name' => $order->product_name,
+                        'product_type' => $order->product_type,
+                        'customer_approval' => $order->customer_approval,
                         'status' => $order->status,
                         'order_total' => $order->order_total,
                         'subtotal_before_tax_snapshot' => $order->subtotal_before_tax_snapshot,
@@ -102,13 +111,14 @@ class OrdersController extends BaseApiController
                     'summary' => $this->Orders->paymentSummary((int) $id),
                     'payments' => $this->Orders->paymentHistory((int) $id),
                     'can_add_payment' => Auth::can('orders.payment'),
+                    'can_approve_ready_made' => Auth::can('job_orders.approval'),
                 ],
             ]);
         }
 
         $amount = $_POST['amount'] ?? null;
         if (!is_scalar($amount)) {
-            $this->respondError('Enter a valid payment amount.', 422);
+            $this->json(['status' => 'error', 'message' => 'Enter a valid payment amount.']);
         }
 
         $user = Auth::user() ?? [];
@@ -127,13 +137,30 @@ class OrdersController extends BaseApiController
         $this->requirePermission(($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' ? 'orders.update' : 'orders.view');
         $order = ctype_digit((string) $id) ? $this->Orders->findByID($id) : null;
         if (!$order) {
-            $this->respondError('Order not found.', 404);
+            $this->json(['status' => 'error', 'message' => 'Order not found.']);
         }
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $data = $this->input();
+            if (!$this->resolveProductSelection($data, $order)) {
+                $this->json(['status' => 'error', 'message' => 'Select a valid product type and matching product details.']);
+            }
+            // Historical Orders remain without a reconstructed Unit Price.
+            // Existing priced Orders must continue to submit a valid stored price.
+            if ($order->unit_price === null) {
+                $data['unit_price'] = null;
+            } else {
+                $pricing = Orders::calculateGrossTotalFromUnitPrice(
+                    (string) ($data['unit_price'] ?? ''),
+                    (string) ($data['quantity'] ?? '')
+                );
+                if ($pricing === null) {
+                    $this->json(['status' => 'error', 'message' => 'Enter a valid Unit Price and positive whole-number quantity.']);
+                }
+                $data = array_merge($data, $pricing);
+            }
             if (!in_array($order->status, ['Pending', 'Cancelled'], true)) {
                 if (isset($_POST['status']) && $_POST['status'] !== $order->status) {
-                    $this->respondError('The status of an order already in production cannot be changed here.', 409);
+                    $this->json(['status' => 'error', 'message' => 'The status of an order already in production cannot be changed here.']);
                 }
                 $data['status'] = $order->status;
             }
@@ -147,15 +174,18 @@ class OrdersController extends BaseApiController
             $hasSnapshot = count(array_filter($snapshotFields, static fn($value) => $value !== null)) > 0;
             if ($hasSnapshot) {
                 if (in_array(null, $snapshotFields, true)) {
-                    $this->respondError('This Order has an incomplete tax snapshot and cannot be recalculated safely.', 422);
+                    $this->json(['status' => 'error', 'message' => 'This Order has an incomplete tax snapshot and cannot be recalculated safely.']);
                 }
+                $taxMode = $order->unit_price !== null
+                    ? 'Inclusive'
+                    : $order->tax_calculation_mode_snapshot;
                 $calculation = Orders::calculateTax($data['order_total'], [
                     'tax_name' => $order->tax_name_snapshot,
                     'tax_rate' => (string) $order->tax_rate_snapshot,
-                    'calculation_mode' => $order->tax_calculation_mode_snapshot,
+                    'calculation_mode' => $taxMode,
                 ]);
                 if ($calculation === null) {
-                    $this->respondError('Enter a valid amount for this Order tax calculation.', 422);
+                    $this->json(['status' => 'error', 'message' => 'Enter a valid amount for this Order tax calculation.']);
                 }
                 $data = array_merge($data, $calculation);
             } else {
@@ -167,12 +197,12 @@ class OrdersController extends BaseApiController
             }
             $error = $this->validateOrder($data, true, (string) $order->status);
             if ($error !== null) {
-                $this->respondError($error, 422);
+                $this->json(['status' => 'error', 'message' => $error]);
             }
             $result = $this->Orders->update($id, $data);
             $this->respondResult($result);
         }
-        $this->respond($order);
+        $this->json($order);
     }
 
     public function add(): void
@@ -180,18 +210,33 @@ class OrdersController extends BaseApiController
         $this->requirePermission('orders.create');
         $this->requirePost();
         $data = $this->input();
+        if (!$this->resolveProductSelection($data)) {
+            $this->json(['status' => 'error', 'message' => 'Select a valid product type and matching product details.']);
+        }
+        $pricing = Orders::calculateGrossTotalFromUnitPrice(
+            (string) ($data['unit_price'] ?? ''),
+            (string) ($data['quantity'] ?? '')
+        );
+        if ($pricing === null) {
+            $this->json(['status' => 'error', 'message' => 'Unit Price must be greater than zero and Quantity must be a positive whole number.']);
+        }
+        $data = array_merge($data, $pricing);
         $taxState = $this->TaxSettings->activeConfiguration();
         if (!$taxState['configuration']) {
-            $this->respondError($taxState['message'], 422);
+            $this->json(['status' => 'error', 'message' => $taxState['message']]);
         }
-        $calculation = Orders::calculateTax($data['order_total'], $taxState['configuration']);
+        // Unit Price already includes VAT. Use the active rate/name but force
+        // this Order snapshot to Inclusive without changing system settings.
+        $taxConfiguration = $taxState['configuration'];
+        $taxConfiguration['calculation_mode'] = 'Inclusive';
+        $calculation = Orders::calculateTax($data['order_total'], $taxConfiguration);
         if ($calculation === null) {
-            $this->respondError('Enter a valid Order amount. The final total must fit the supported currency range.', 422);
+            $this->json(['status' => 'error', 'message' => 'Enter a valid Order amount. The final total must fit the supported currency range.']);
         }
         $data = array_merge($data, $calculation);
         $error = $this->validateOrder($data, false);
         if ($error !== null) {
-            $this->respondError($error, 422);
+            $this->json(['status' => 'error', 'message' => $error]);
         }
         $data['status'] = 'Pending';
         $user = Auth::user() ?? [];
@@ -202,10 +247,24 @@ class OrdersController extends BaseApiController
         $this->respondResult($result);
     }
 
+    public function readyMadeApproval($id): void
+    {
+        $this->requirePermission('job_orders.approval');
+        $this->requirePost();
+        if (!ctype_digit((string) $id) || (int) $id < 1) {
+            $this->json(['status' => 'error', 'message' => 'Order not found.']);
+        }
+        $approval = $this->postValue('customer_approval');
+        if (!in_array($approval, ['Approved', 'Rejected'], true)) {
+            $this->json(['status' => 'error', 'message' => 'Select Approved or Rejected.']);
+        }
+        $this->respondResult($this->Orders->updateReadyMadeCustomerApproval((int) $id, $approval));
+    }
+
     public function delete($id = null): void
     {
         $this->requireLogin();
-        $this->respondError('Order deletion is not allowed.', 405);
+        $this->json(['status' => 'error', 'message' => 'Order deletion is not allowed.']);
     }
 
     private function input(): array
@@ -213,14 +272,61 @@ class OrdersController extends BaseApiController
         return [
             'customer_id' => $this->postValue('customer_id'),
             'order_date' => $this->postValue('order_date'),
-            'product_name' => $this->postValue('product_name'),
+            'product_type' => $this->postValue('product_type'),
+            'inventory_id' => $this->postValue('inventory_id'),
+            'custom_product_name' => $this->postValue('custom_product_name'),
             'quantity' => $this->postValue('quantity'),
+            'unit_price' => $this->postValue('unit_price'),
             'specifications' => $this->postValue('specifications'),
             'order_total' => $this->postValue('order_total'),
             'downpayment' => $this->postValue('downpayment', '0'),
             'delivery_method' => $this->postValue('delivery_method'),
             'status' => $this->postValue('status', 'Pending')
         ];
+    }
+
+    private function resolveProductSelection(array &$data, ?object $existingOrder = null): bool
+    {
+        $productType = $data['product_type'] ?? '';
+        $inventoryId = $data['inventory_id'] ?? '';
+
+        if ($productType === 'legacy') {
+            if ($inventoryId !== '' || !$existingOrder
+                || $existingOrder->product_type !== null || $existingOrder->inventory_id !== null) {
+                return false;
+            }
+            $data['product_type'] = null;
+            $data['inventory_id'] = null;
+            $data['product_name'] = (string) $existingOrder->product_name;
+            return $data['product_name'] !== '';
+        }
+
+        if ($productType === 'Custom-Made') {
+            if ($inventoryId !== '') return false;
+            $customName = trim((string) ($data['custom_product_name'] ?? ''));
+            if ($customName === '' || mb_strlen($customName) > 100) {
+                return false;
+            }
+            $data['product_type'] = 'Custom-Made';
+            $data['inventory_id'] = null;
+            $data['product_name'] = $customName;
+            return true;
+        }
+
+        if ($productType !== 'Ready-Made'
+            || !ctype_digit((string) $inventoryId) || (int) $inventoryId < 1) {
+            return false;
+        }
+
+        $product = $this->Orders->findAvailableProductByID((int) $inventoryId);
+        if (!$product) {
+            return false;
+        }
+
+        $data['product_type'] = 'Ready-Made';
+        $data['inventory_id'] = (int) $product->inventory_id;
+        $data['product_name'] = trim((string) $product->item_name);
+        return $data['product_name'] !== '' && mb_strlen($data['product_name']) <= 100;
     }
 
     private function postValue(string $key, string $default = ''): string
@@ -248,8 +354,22 @@ class OrdersController extends BaseApiController
         if ($this->currencyCents($downpayment) > $this->currencyCents($orderTotal)) {
             return 'Downpayment cannot exceed the order total.';
         }
-        if (!is_numeric($data['quantity']) || !is_finite((float) $data['quantity']) || (float) $data['quantity'] <= 0) {
-            return 'Quantity must be a valid number greater than 0.';
+        if (!preg_match('/^[1-9]\d{0,7}$/', (string) $data['quantity'])) {
+            return 'Quantity must be a positive whole number.';
+        }
+        if (!$updating || ($data['unit_price'] ?? null) !== null) {
+            if (!$this->isCurrencyAmount((string) ($data['unit_price'] ?? ''))
+                || $this->currencyCents((string) $data['unit_price']) <= 0) {
+                return 'Unit Price must be a valid amount greater than zero.';
+            }
+        }
+        if (($data['product_type'] ?? null) === 'Custom-Made') {
+            if (trim((string) ($data['specifications'] ?? '')) === '') {
+                return 'Specifications are required for Custom-Made Orders. Enter one clear dimension in centimeters.';
+            }
+            if (!self::hasOneClearCentimeterDimension((string) $data['specifications'])) {
+                return 'Custom-Made specifications must contain exactly one clear, valid dimension in centimeters (for example, 90x210 cm).';
+            }
         }
         $date = \DateTime::createFromFormat('Y-m-d', $data['order_date']);
         if (!$date || $date->format('Y-m-d') !== $data['order_date']) return 'Enter a valid order date.';
@@ -265,6 +385,22 @@ class OrdersController extends BaseApiController
         return null;
     }
 
+    private static function hasOneClearCentimeterDimension(string $value): bool
+    {
+        $count = preg_match_all(
+            '/(?<![\d.])(\d+(?:\.\d+)?)\s*(cm|mm|m|inches?|in|ft|feet)?\s*(?:x|×)\s*(\d+(?:\.\d+)?)\s*(cm|mm|m|inches?|in|ft|feet)?\b/iu',
+            $value,
+            $matches,
+            PREG_SET_ORDER
+        );
+
+        return $count === 1
+            && in_array(strtolower((string) ($matches[0][2] ?? '')), ['', 'cm'], true)
+            && in_array(strtolower((string) ($matches[0][4] ?? '')), ['', 'cm'], true)
+            && (float) $matches[0][1] > 0
+            && (float) $matches[0][3] > 0;
+    }
+
     private function isCurrencyAmount(string $amount): bool
     {
         return (bool) preg_match('/^(?:0|[1-9]\d{0,7})(?:\.\d{1,2})?$/', $amount);
@@ -276,4 +412,55 @@ class OrdersController extends BaseApiController
         return ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
     }
 
+    private function respondResult(array $result): void
+    {
+        $successful = !empty($result['success']);
+        unset($result['success'], $result['status']);
+        if (empty($result['message'])) {
+            $result['message'] = $successful
+                ? 'Operation completed successfully.'
+                : 'Unable to complete the operation.';
+        }
+        $result['status'] = $successful ? 'success' : 'error';
+        $this->json($result);
+    }
+
+    private function requireLogin(): void
+    {
+        if (!Auth::check()) {
+            $this->json(['status' => 'error', 'message' => 'You must be logged in.']);
+        }
+    }
+
+    private function requirePermission(string $permission): void
+    {
+        $this->requireLogin();
+        if (!Auth::can($permission)) {
+            $this->json([
+                'status' => 'error',
+                'message' => 'You are not authorized to perform this action.',
+            ]);
+        }
+    }
+
+    private function requirePost(): void
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            $this->json(['status' => 'error', 'message' => 'POST is required.']);
+        }
+    }
+
+    private function requireGet(): void
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+            $this->json(['status' => 'error', 'message' => 'GET is required.']);
+        }
+    }
+
+    private function requireGetOrPost(): void
+    {
+        if (!in_array(($_SERVER['REQUEST_METHOD'] ?? 'GET'), ['GET', 'POST'], true)) {
+            $this->json(['status' => 'error', 'message' => 'GET or POST is required.']);
+        }
+    }
 }

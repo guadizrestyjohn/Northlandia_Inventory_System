@@ -5,6 +5,7 @@ $(function () {
 const InventoryModule = (function () {
     const s = {
         table: '#inventory-table',
+        categoryFilter: '#inventory-category-filter',
         form: '#inventory-form',
         modal: '#inventory-modal',
 
@@ -14,7 +15,9 @@ const InventoryModule = (function () {
 
         id: '#inventory-id',
         itemName: '#inventory-item-name',
-        size: '#inventory-size',
+        itemDescription: '#inventory-item-description',
+        width: '#inventory-width',
+        height: '#inventory-height',
         category: '#inventory-category',
         quantity: '#inventory-quantity',
         unit: '#inventory-unit',
@@ -38,6 +41,22 @@ const InventoryModule = (function () {
             '.js-edit-inventory',
             handleEdit
         );
+
+        $(s.categoryFilter).on('change', function () {
+            if (!table) {
+                return;
+            }
+
+            const category = $(this).val();
+            const escapedCategory = category
+                ? $.fn.dataTable.util.escapeRegex(category)
+                : '';
+
+            table
+                .column(4)
+                .search(escapedCategory ? `^${escapedCategory}$` : '', true, false)
+                .draw();
+        });
 
         $(s.form).on('submit', submitForm);
 
@@ -63,6 +82,7 @@ const InventoryModule = (function () {
         $(s.saveButton).text('Save Inventory');
 
         $(s.quantityGroup).addClass('d-none');
+        $(s.itemDescription).prop('required', true);
         $(s.quantity)
             .val('')
             .prop('readonly', false);
@@ -92,6 +112,7 @@ const InventoryModule = (function () {
         fillItem(item);
 
         $(s.id).val(item.inventory_id);
+        $(s.itemDescription).prop('required', false);
 
         $(s.modalTitle).text(
             `Edit Inventory No. ${item.inventory_id}`
@@ -119,9 +140,10 @@ const InventoryModule = (function () {
             item.item_name || ''
         );
 
-        $(s.size).val(
-            item.size || ''
-        );
+        $(s.itemDescription).val(item.item_description || '');
+
+        $(s.width).val(item.width_cm || '');
+        $(s.height).val(item.height_cm || '');
 
         $(s.category).val(
             String(item.category_id || '')
@@ -192,7 +214,9 @@ const InventoryModule = (function () {
             {
                 data: 'inventory_id',
                 defaultContent: '',
-                render: window.renderTableText
+                render: function (id, type) {
+                    return window.renderTableText(`Item ${id || ''}`, type);
+                }
             },
             {
                 data: 'item_name',
@@ -200,14 +224,31 @@ const InventoryModule = (function () {
                 render: window.renderTableText
             },
             {
-                data: 'size',
+                data: 'item_description',
+                defaultContent: '—',
+                render: function (value, type) {
+                    return window.renderTableText(value || '—', type);
+                }
+            },
+            {
+                data: null,
                 defaultContent: '',
-                render: window.renderTableText
+                render: function (row, type, item) {
+                    const size = item.width_cm && item.height_cm
+                        ? `${window.formatQuantity(item.width_cm)}x${window.formatQuantity(item.height_cm)} cm`
+                        : (item.size || '—');
+                    return window.renderTableText(size, type);
+                }
             },
             {
                 data: 'category_name',
                 defaultContent: '',
                 render: window.renderTableText
+            },
+            {
+                data: 'total_stocks',
+                defaultContent: '0',
+                render: window.renderTableQuantity
             },
             {
                 data: 'quantity',
@@ -257,7 +298,18 @@ const InventoryModule = (function () {
             columns: columns,
 
             paging: false,
-            info: false
+            info: false,
+            initComplete: function () {
+                const filter = $(this.api().table().container()).find('.dataTables_filter');
+                const searchLabel = filter.find('label');
+
+                filter.addClass('d-flex align-items-center justify-content-end flex-wrap');
+                searchLabel.addClass('mb-0');
+                $(s.categoryFilter)
+                    .removeClass('d-none')
+                    .addClass('d-inline-block w-auto mr-2 mb-1')
+                    .prependTo(filter);
+            }
         });
     }
 
@@ -277,6 +329,7 @@ const InventoryModule = (function () {
         }
 
         $(s.id).val('');
+        $(s.itemDescription).prop('required', true);
 
         $(s.modalTitle).text('Add Inventory');
         $(s.saveButton).text('Save Inventory');

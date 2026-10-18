@@ -31,10 +31,14 @@ CREATE TABLE `bidding_document_records` (
   `bidding_document_record_id` int(11) NOT NULL,
   `reference_no` varchar(50) NOT NULL,
   `title` varchar(150) NOT NULL,
+  `document_type` varchar(80) NOT NULL DEFAULT 'Other',
   `client_name` varchar(150) DEFAULT NULL,
   `submission_date` date NOT NULL,
   `status` varchar(30) NOT NULL DEFAULT 'Recorded',
   `description` text DEFAULT NULL,
+  `remarks` text DEFAULT NULL,
+  `attachment_path` varchar(80) DEFAULT NULL,
+  `attachment_name` varchar(255) DEFAULT NULL,
   `created_by` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -94,8 +98,12 @@ CREATE TABLE `inventory_items` (
   `inventory_id` int(11) NOT NULL,
   `category_id` int(11) NOT NULL,
   `item_name` varchar(100) NOT NULL,
-  `size` varchar(10) DEFAULT NULL,
+  `item_description` varchar(255) NOT NULL,
+  `size` varchar(40) DEFAULT NULL,
+  `width_cm` decimal(10,2) DEFAULT NULL,
+  `height_cm` decimal(10,2) DEFAULT NULL,
   `quantity` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `total_stocks` decimal(10,2) NOT NULL DEFAULT 0.00,
   `unit` varchar(30) NOT NULL,
   `status` enum('Available','Low Stock','Out of Stock') NOT NULL DEFAULT 'Available',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
@@ -134,6 +142,7 @@ CREATE TABLE `job_orders` (
   `job_order_id` int(11) NOT NULL,
   `order_id` int(11) NOT NULL,
   `production_assignment` varchar(100) DEFAULT NULL,
+  `assigned_team` varchar(100) DEFAULT NULL,
   `production_start_date` date DEFAULT NULL,
   `production_end_date` date DEFAULT NULL,
   `production_completed_at` datetime DEFAULT NULL,
@@ -141,6 +150,81 @@ CREATE TABLE `job_orders` (
   `customer_approval` enum('Pending','Approved','Rejected') DEFAULT 'Pending',
   `status` varchar(30) NOT NULL DEFAULT 'Pending',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `job_order_outputs`
+--
+
+CREATE TABLE `job_order_outputs` (
+  `output_id` int(11) NOT NULL,
+  `job_order_id` int(11) NOT NULL,
+  `product_name` varchar(100) NOT NULL,
+  `item_description` varchar(255) NOT NULL,
+  `width_cm` decimal(10,2) NOT NULL,
+  `height_cm` decimal(10,2) NOT NULL,
+  `reported_quantity` decimal(10,2) NOT NULL,
+  `submission_key` char(36) NOT NULL,
+  `reported_by` int(11) NOT NULL,
+  `reported_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `inventory_id` int(11) DEFAULT NULL,
+  `verification_status` enum('Reported','Verified','Rejected') NOT NULL DEFAULT 'Reported',
+  `verified_by` int(11) DEFAULT NULL,
+  `verified_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `job_order_output_mismatch_approvals`
+--
+
+CREATE TABLE `job_order_output_mismatch_approvals` (
+  `approval_id` int(11) NOT NULL,
+  `output_id` int(11) NOT NULL,
+  `order_id` int(11) NOT NULL,
+  `job_order_id` int(11) NOT NULL,
+  `inventory_id` int(11) NOT NULL,
+  `mismatch_type` enum('ProductOrDimensions','QuantityVariance','ProductAndQuantity') NOT NULL,
+  `order_product_name_snapshot` varchar(100) NOT NULL,
+  `order_specifications_snapshot` text DEFAULT NULL,
+  `order_quantity_snapshot` decimal(10,2) NOT NULL,
+  `output_product_name_snapshot` varchar(100) NOT NULL,
+  `output_description_snapshot` varchar(255) NOT NULL,
+  `output_width_cm_snapshot` decimal(10,2) NOT NULL,
+  `output_height_cm_snapshot` decimal(10,2) NOT NULL,
+  `output_quantity_snapshot` decimal(10,2) NOT NULL,
+  `inventory_item_name_snapshot` varchar(100) NOT NULL,
+  `inventory_description_snapshot` varchar(255) NOT NULL,
+  `inventory_width_cm_snapshot` decimal(10,2) DEFAULT NULL,
+  `inventory_height_cm_snapshot` decimal(10,2) DEFAULT NULL,
+  `reason` text NOT NULL,
+  `requested_release_quantity` decimal(10,2) NOT NULL,
+  `authorized_release_quantity` decimal(10,2) DEFAULT NULL,
+  `request_key` char(36) NOT NULL,
+  `requested_by` int(11) NOT NULL,
+  `requested_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `decision` enum('Pending','Approved','Rejected','Invalidated') NOT NULL DEFAULT 'Pending',
+  `approved_by` int(11) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `job_order_releases`
+--
+
+CREATE TABLE `job_order_releases` (
+  `release_id` int(11) NOT NULL,
+  `job_order_id` int(11) NOT NULL,
+  `order_id` int(11) NOT NULL,
+  `request_key` char(36) DEFAULT NULL,
+  `request_hash` char(64) DEFAULT NULL,
+  `released_by` int(11) NOT NULL,
+  `released_at` datetime NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -180,7 +264,9 @@ CREATE TABLE `purchase_records` (
   `supplier_name` varchar(150) DEFAULT NULL,
   `purchase_date` date NOT NULL,
   `items_details` text NOT NULL,
+  `quantity` int(10) unsigned DEFAULT NULL,
   `amount` decimal(10,2) DEFAULT NULL,
+  `remarks` text DEFAULT NULL,
   `status` varchar(30) NOT NULL DEFAULT 'Recorded',
   `created_by` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
@@ -245,12 +331,15 @@ CREATE TABLE `stock_transactions` (
   `inventory_id` int(11) NOT NULL,
   `order_id` int(11) DEFAULT NULL,
   `job_order_id` int(11) DEFAULT NULL,
+  `production_output_id` int(11) DEFAULT NULL,
+  `release_id` int(11) DEFAULT NULL,
   `transaction_type` enum('Stock In','Stock Out') NOT NULL,
   `quantity` decimal(10,2) NOT NULL,
   `reference_no` varchar(50) DEFAULT NULL,
   `remarks` varchar(255) DEFAULT NULL,
   `transaction_date` timestamp NOT NULL DEFAULT current_timestamp(),
-  `user_id` int(11) NOT NULL
+  `user_id` int(11) NOT NULL,
+  `idempotency_key` char(36) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -282,6 +371,7 @@ CREATE TABLE `users` (
   `password` varchar(255) NOT NULL,
   `full_name` varchar(100) NOT NULL,
   `role_id` int(11) NOT NULL,
+  `production_team` varchar(100) DEFAULT NULL,
   `status` enum('Active','Inactive') NOT NULL DEFAULT 'Active'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -346,6 +436,40 @@ ALTER TABLE `job_orders`
   ADD KEY `job_orders_production_completed_by_fk` (`production_completed_by`);
 
 --
+-- Indexes for table `job_order_outputs`
+--
+ALTER TABLE `job_order_outputs`
+  ADD PRIMARY KEY (`output_id`),
+  ADD UNIQUE KEY `job_order_outputs_submission_key_unique` (`submission_key`),
+  ADD KEY `job_order_outputs_job_order_idx` (`job_order_id`),
+  ADD KEY `job_order_outputs_inventory_idx` (`inventory_id`),
+  ADD KEY `job_order_outputs_reported_by_idx` (`reported_by`),
+  ADD KEY `job_order_outputs_verified_by_idx` (`verified_by`);
+
+--
+-- Indexes for table `job_order_output_mismatch_approvals`
+--
+ALTER TABLE `job_order_output_mismatch_approvals`
+  ADD PRIMARY KEY (`approval_id`),
+  ADD UNIQUE KEY `job_order_output_approvals_request_key_unique` (`request_key`),
+  ADD KEY `job_order_output_approvals_output_idx` (`output_id`,`decision`),
+  ADD KEY `job_order_output_approvals_order_idx` (`order_id`),
+  ADD KEY `job_order_output_approvals_job_order_idx` (`job_order_id`),
+  ADD KEY `job_order_output_approvals_inventory_idx` (`inventory_id`),
+  ADD KEY `job_order_output_approvals_requested_by_fk` (`requested_by`),
+  ADD KEY `job_order_output_approvals_approved_by_fk` (`approved_by`);
+
+--
+-- Indexes for table `job_order_releases`
+--
+ALTER TABLE `job_order_releases`
+  ADD PRIMARY KEY (`release_id`),
+  ADD UNIQUE KEY `job_order_releases_job_order_unique` (`job_order_id`),
+  ADD UNIQUE KEY `job_order_releases_order_unique` (`order_id`),
+  ADD UNIQUE KEY `job_order_releases_request_key_unique` (`request_key`),
+  ADD KEY `job_order_releases_released_by_idx` (`released_by`);
+
+--
 -- Indexes for table `orders`
 --
 ALTER TABLE `orders`
@@ -384,7 +508,7 @@ ALTER TABLE `roles`
 ALTER TABLE `sales_records`
   ADD PRIMARY KEY (`sales_record_id`),
   ADD UNIQUE KEY `sales_records_reference_no` (`reference_no`),
-  ADD KEY `sales_records_order_id` (`order_id`),
+  ADD UNIQUE KEY `sales_records_one_per_order` (`order_id`),
   ADD KEY `sales_records_sales_date` (`sales_date`),
   ADD KEY `sales_records_created_by` (`created_by`);
 
@@ -393,7 +517,10 @@ ALTER TABLE `sales_records`
 --
 ALTER TABLE `stock_transactions`
   ADD PRIMARY KEY (`transaction_id`),
-  ADD UNIQUE KEY `stock_transactions_job_order_unique` (`job_order_id`),
+  ADD KEY `stock_transactions_job_order_idx` (`job_order_id`),
+  ADD KEY `stock_transactions_production_output_idx` (`production_output_id`),
+  ADD KEY `stock_transactions_release_idx` (`release_id`),
+  ADD UNIQUE KEY `stock_transactions_idempotency_key_unique` (`idempotency_key`),
   ADD KEY `inventory_id` (`inventory_id`),
   ADD KEY `user_id` (`user_id`),
   ADD KEY `stock_transactions_order_id` (`order_id`);
@@ -459,6 +586,24 @@ ALTER TABLE `invoice_records`
 --
 ALTER TABLE `job_orders`
   MODIFY `job_order_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `job_order_outputs`
+--
+ALTER TABLE `job_order_outputs`
+  MODIFY `output_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `job_order_output_mismatch_approvals`
+--
+ALTER TABLE `job_order_output_mismatch_approvals`
+  MODIFY `approval_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `job_order_releases`
+--
+ALTER TABLE `job_order_releases`
+  MODIFY `release_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `orders`
@@ -546,6 +691,31 @@ ALTER TABLE `job_orders`
   ADD CONSTRAINT `job_orders_production_completed_by_fk` FOREIGN KEY (`production_completed_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 --
+-- Constraints for production output and release history
+--
+ALTER TABLE `job_order_outputs`
+  ADD CONSTRAINT `job_order_outputs_job_order_fk` FOREIGN KEY (`job_order_id`) REFERENCES `job_orders` (`job_order_id`),
+  ADD CONSTRAINT `job_order_outputs_inventory_fk` FOREIGN KEY (`inventory_id`) REFERENCES `inventory_items` (`inventory_id`),
+  ADD CONSTRAINT `job_order_outputs_reported_by_fk` FOREIGN KEY (`reported_by`) REFERENCES `users` (`user_id`),
+  ADD CONSTRAINT `job_order_outputs_verified_by_fk` FOREIGN KEY (`verified_by`) REFERENCES `users` (`user_id`),
+  ADD CONSTRAINT `job_order_outputs_quantity_positive` CHECK (`reported_quantity` > 0 AND `reported_quantity` = FLOOR(`reported_quantity`)),
+  ADD CONSTRAINT `job_order_outputs_dimensions_positive` CHECK (`width_cm` > 0 AND `height_cm` > 0);
+
+ALTER TABLE `job_order_output_mismatch_approvals`
+  ADD CONSTRAINT `job_order_output_approvals_output_fk` FOREIGN KEY (`output_id`) REFERENCES `job_order_outputs` (`output_id`),
+  ADD CONSTRAINT `job_order_output_approvals_order_fk` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`),
+  ADD CONSTRAINT `job_order_output_approvals_job_order_fk` FOREIGN KEY (`job_order_id`) REFERENCES `job_orders` (`job_order_id`),
+  ADD CONSTRAINT `job_order_output_approvals_inventory_fk` FOREIGN KEY (`inventory_id`) REFERENCES `inventory_items` (`inventory_id`),
+  ADD CONSTRAINT `job_order_output_approvals_requested_by_fk` FOREIGN KEY (`requested_by`) REFERENCES `users` (`user_id`),
+  ADD CONSTRAINT `job_order_output_approvals_approved_by_fk` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`),
+  ADD CONSTRAINT `job_order_output_approvals_quantity_check` CHECK (`requested_release_quantity` >= 0 AND (`authorized_release_quantity` IS NULL OR `authorized_release_quantity` >= 0) AND (`approved_by` IS NULL OR `approved_by` <> `requested_by`));
+
+ALTER TABLE `job_order_releases`
+  ADD CONSTRAINT `job_order_releases_job_order_fk` FOREIGN KEY (`job_order_id`) REFERENCES `job_orders` (`job_order_id`),
+  ADD CONSTRAINT `job_order_releases_order_fk` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`),
+  ADD CONSTRAINT `job_order_releases_released_by_fk` FOREIGN KEY (`released_by`) REFERENCES `users` (`user_id`);
+
+--
 -- Constraints for table `orders`
 --
 ALTER TABLE `orders`
@@ -578,7 +748,9 @@ ALTER TABLE `stock_transactions`
   ADD CONSTRAINT `stock_transactions_ibfk_1` FOREIGN KEY (`inventory_id`) REFERENCES `inventory_items` (`inventory_id`),
   ADD CONSTRAINT `stock_transactions_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`),
   ADD CONSTRAINT `stock_transactions_job_order_fk` FOREIGN KEY (`job_order_id`) REFERENCES `job_orders` (`job_order_id`) ON DELETE SET NULL ON UPDATE CASCADE,
-  ADD CONSTRAINT `stock_transactions_order_fk` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE SET NULL ON UPDATE CASCADE;
+  ADD CONSTRAINT `stock_transactions_order_fk` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  ADD CONSTRAINT `stock_transactions_production_output_fk` FOREIGN KEY (`production_output_id`) REFERENCES `job_order_outputs` (`output_id`),
+  ADD CONSTRAINT `stock_transactions_release_fk` FOREIGN KEY (`release_id`) REFERENCES `job_order_releases` (`release_id`);
 
 --
 -- Constraints for table `tax_settings`

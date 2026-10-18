@@ -3,16 +3,15 @@ Options -Indexes
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Keep source-control, backup, migration, archive, and database files private.
-    RewriteRule ^(?:\.git|BACKUP|migrations)(?:/|$) - [F,L,NC]
+    # Keep source-control and backup directories private.
+    RewriteRule ^(?:\.git|BACKUP)(?:/|$) - [F,L,NC]
     RewriteRule \.(?:sql|sqlite|db)$ - [F,L,NC]
-    RewriteRule ^sample\.zip$ - [F,L,NC]
 
     # Keep application source files out of the public URL space.
     RewriteRule ^app/ - [F,L]
 
     # Serve front-end assets from the public document directory.
-    RewriteRule ^(plugins|dist|css|js)/(.*)$ public/$1/$2 [L]
+    RewriteRule ^(assets|plugins|dist|css|js)/(.*)$ public/$1/$2 [L]
 
     # Route application URLs through the MVC front controller.
     RewriteRule ^$ public/index.php [L]

@@ -15,11 +15,13 @@ const ReportsModule = (function () {
 
     const reportColumns = {
         inventory: [
-            { data: 'inventory_id', title: 'Inventory No.' },
+            { data: 'inventory_id', title: 'Item Number', render: (id, type) => window.renderTableText(`Item ${id || ''}`, type) },
             { data: 'item_name', title: 'Item Name' },
-            { data: 'size', title: 'Size' },
+            { data: 'item_description', title: 'Item Description' },
+            { data: null, title: 'Size', render: (_value, type, row) => window.renderTableText(row.width_cm && row.height_cm ? `${window.formatQuantity(row.width_cm)}x${window.formatQuantity(row.height_cm)} cm` : (row.size || '—'), type) },
             { data: 'category_name', title: 'Category' },
-            { data: 'quantity', title: 'Current Quantity', render: window.renderTableQuantity },
+            { data: 'total_stocks', title: 'Total Stocks', render: window.renderTableQuantity },
+            { data: 'quantity', title: 'Stocks', render: window.renderTableQuantity },
             { data: 'unit', title: 'Unit' },
             { data: 'status', title: 'Status', render: window.renderTableStatus }
         ],
@@ -31,6 +33,7 @@ const ReportsModule = (function () {
             { data: 'reference_no', title: 'Reference' },
             { data: 'order_id', title: 'Order No.', render: window.renderTableOrderNumber },
             { data: 'job_order_id', title: 'Job Order No.', render: window.renderTableJobOrderNumber },
+            { data: null, title: 'Production Output / Release', render: (_value, type, row) => window.renderTableText(row.production_output_id ? `Output ${row.production_output_id} · Release ${row.release_id || '—'}` : '—', type) },
             {
                 data: null,
                 title: 'User',
@@ -157,11 +160,13 @@ const ReportsModule = (function () {
                     render: column.render || window.renderTableText
                 }, column);
             }),
-            autoWidth: false,
-            responsive: false,
-            scrollX: true,
-            order: [],
-            language: {
+                           autoWidth: false,
+                responsive: false,
+                scrollX: true,
+                paging: false,
+                info: false,
+                order: [],
+                language: {
                 emptyTable: 'No report results match the selected filters.',
                 zeroRecords: 'No report results match the selected filters.'
             }

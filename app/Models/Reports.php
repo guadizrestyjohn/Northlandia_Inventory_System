@@ -8,7 +8,8 @@ class Reports extends Model
 {
     public function inventory(array $filters): array
     {
-        $sql = 'SELECT i.inventory_id, i.item_name, i.size, i.quantity, i.unit,
+        $sql = 'SELECT i.inventory_id, i.item_name, i.item_description, i.size, i.width_cm, i.height_cm,
+                       i.quantity, i.total_stocks, i.unit,
                        i.status, i.category_id, c.category_name
                 FROM inventory_items i
                 INNER JOIN inventory_categories c ON c.category_id = i.category_id
@@ -24,9 +25,10 @@ class Reports extends Model
             $params[] = $filters['status'];
         }
         if ($filters['keyword'] !== '') {
-            $sql .= ' AND (i.item_name LIKE ? OR i.size LIKE ? OR c.category_name LIKE ?)';
+            $sql .= ' AND (i.item_name LIKE ? OR i.item_description LIKE ? OR i.size LIKE ?
+                           OR CAST(i.width_cm AS CHAR) LIKE ? OR CAST(i.height_cm AS CHAR) LIKE ? OR c.category_name LIKE ?)';
             $term = '%' . $filters['keyword'] . '%';
-            array_push($params, $term, $term, $term);
+            array_push($params, $term, $term, $term, $term, $term, $term);
         }
 
         $sql .= ' ORDER BY i.inventory_id DESC';
@@ -40,7 +42,7 @@ class Reports extends Model
     {
         $sql = 'SELECT st.transaction_id, st.inventory_id, i.item_name,
                        st.transaction_type, st.quantity, st.reference_no,
-                       st.order_id, st.job_order_id, st.remarks,
+                       st.order_id, st.job_order_id, st.production_output_id, st.release_id, st.remarks,
                        st.transaction_date, st.user_id, u.full_name, u.username
                 FROM stock_transactions st
                 INNER JOIN inventory_items i ON i.inventory_id = st.inventory_id

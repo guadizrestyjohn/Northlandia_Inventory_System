@@ -32,6 +32,8 @@ class RecordsController extends BaseController
             'orders' => $orders,
             'filters' => $filters,
             'canManageRecords' => Auth::canManageRecords(),
+            'canDeleteBiddingDocuments' => Auth::canDeleteBiddingDocuments(),
+            'canDeletePurchaseRecords' => Auth::canDeletePurchaseRecords(),
         ]);
     }
 
@@ -39,7 +41,7 @@ class RecordsController extends BaseController
     {
         $allowedTypes = [
             'Purchase', 'Sales', 'Order', 'Receipt', 'Invoice',
-            'Bidding Document', 'Stock In', 'Stock Out', 'Job Order',
+            'Bidding Document', 'Stock In', 'Stock Out', 'Job Order', 'Photo Documentation',
         ];
         $type = $this->queryValue('type');
         $startDate = $this->queryValue('start_date');

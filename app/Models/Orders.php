@@ -58,6 +58,27 @@ class Orders extends Model
         ];
     }
 
+    public static function calculateGrossTotalFromUnitPrice(string $unitPrice, string $quantity): ?array
+    {
+        $unitPriceCents = self::amountToCents($unitPrice);
+        if ($unitPriceCents === null || $unitPriceCents <= 0
+            || !preg_match('/^[1-9]\d{0,7}$/', $quantity)) {
+            return null;
+        }
+
+        $pieces = (int) $quantity;
+        if ($unitPriceCents > intdiv(self::MAX_ORDER_TOTAL_CENTS, $pieces)) {
+            return null;
+        }
+
+        $grossCents = $unitPriceCents * $pieces;
+        return [
+            'unit_price' => self::formatCents($unitPriceCents),
+            'quantity' => (string) $pieces,
+            'order_total' => self::formatCents($grossCents),
+        ];
+    }
+
     private static function roundTaxRatio(int $numerator, int $denominator): int
     {
         return intdiv($numerator + intdiv($denominator, 2), $denominator);
@@ -67,7 +88,12 @@ class Orders extends Model
     {
         $stmt = $this->db->query(
             'SELECT o.order_id, o.customer_id, c.customer_name, o.order_date,
-                    o.product_name, o.quantity, o.specifications, o.order_total,
+                    o.product_name, o.product_type, o.inventory_id,
+                    linked_item.item_name AS inventory_item_name,
+                    linked_item.size AS inventory_size,
+                    linked_item.width_cm AS inventory_width_cm,
+                    linked_item.height_cm AS inventory_height_cm,
+                    o.quantity, o.unit_price, o.specifications, o.order_total,
                     o.downpayment, o.delivery_method, o.status,
                     o.subtotal_before_tax_snapshot, o.tax_name_snapshot,
                     o.tax_rate_snapshot, o.tax_amount_snapshot,
@@ -76,9 +102,11 @@ class Orders extends Model
                     j.job_order_id, j.status AS job_order_status,
                     j.production_assignment, j.production_start_date,
                     j.production_end_date, j.production_completed_at,
-                    j.production_completed_by, j.customer_approval
+                    j.production_completed_by, j.customer_approval,
+                    o.customer_approval AS order_customer_approval
              FROM orders o
              LEFT JOIN customers c ON c.customer_id = o.customer_id
+             LEFT JOIN inventory_items linked_item ON linked_item.inventory_id = o.inventory_id
              LEFT JOIN job_orders j ON j.order_id = o.order_id
              LEFT JOIN (
                 SELECT order_id, SUM(amount) AS additional_paid
@@ -107,31 +135,98 @@ class Orders extends Model
     public function findByID($id)
     {
         $stmt = $this->db->prepare(
-            'SELECT o.*, c.customer_name
+            'SELECT o.*, c.customer_name,
+                    linked_item.item_name AS inventory_item_name,
+                    linked_item.size AS inventory_size,
+                    linked_item.width_cm AS inventory_width_cm,
+                    linked_item.height_cm AS inventory_height_cm
              FROM orders o
              LEFT JOIN customers c ON c.customer_id = o.customer_id
+             LEFT JOIN inventory_items linked_item ON linked_item.inventory_id = o.inventory_id
              WHERE o.order_id = ?'
         );
         $stmt->execute([$id]);
+
+        $order = $stmt->fetch();
+        if (!$order) return null;
+
+        $paidStmt = $this->db->prepare(
+            'SELECT COALESCE(SUM(amount), 0)
+             FROM receipt_records
+             WHERE order_id = ? AND payment_type = \'Additional\'
+               AND status = \'Recorded\''
+        );
+        $paidStmt->execute([$id]);
+        $summary = self::buildPaymentSummary(
+            (string) $order->order_total,
+            (string) $order->downpayment,
+            (string) $paidStmt->fetchColumn()
+        );
+        foreach ($summary as $key => $value) {
+            $order->{$key} = $value;
+        }
+
+        return $order;
+    }
+
+    public function availableProducts(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT i.inventory_id, i.item_name, i.item_description,
+                    i.size, i.width_cm, i.height_cm, i.quantity, i.unit
+             FROM inventory_items i
+             INNER JOIN inventory_categories c ON c.category_id = i.category_id
+             WHERE c.category_name IN ('Finished Products', 'Modulars')
+             ORDER BY i.item_name ASC, i.width_cm ASC, i.height_cm ASC, i.inventory_id ASC"
+        );
+
+        return $stmt->fetchAll();
+    }
+
+    public function findAvailableProductByID(int $productId): ?object
+    {
+        $stmt = $this->db->prepare(
+            "SELECT i.inventory_id, i.item_name, i.item_description,
+                    i.size, i.width_cm, i.height_cm
+             FROM inventory_items i
+             INNER JOIN inventory_categories c ON c.category_id = i.category_id
+             WHERE i.inventory_id = ?
+               AND c.category_name IN ('Finished Products', 'Modulars')"
+        );
+        $stmt->execute([$productId]);
 
         return $stmt->fetch() ?: null;
     }
 
     public function create($data, ?int $userId = null): array
     {
+        if (!self::validProductSelection($data, false)) {
+            return ['success' => false, 'status' => 422, 'message' => 'The product type and Inventory item selection are inconsistent.'];
+        }
+        $pricing = self::calculateGrossTotalFromUnitPrice(
+            (string) ($data['unit_price'] ?? ''),
+            (string) ($data['quantity'] ?? '')
+        );
+        if ($pricing === null
+            || self::amountToCents((string) ($data['order_total'] ?? '')) !== self::amountToCents($pricing['order_total'])) {
+            return ['success' => false, 'status' => 422, 'message' => 'The Unit Price and quantity do not match the Order Total.'];
+        }
         try {
             $this->db->beginTransaction();
             $stmt = $this->db->prepare(
                 'INSERT INTO orders
-                    (customer_id, order_date, product_name, quantity, specifications,
+                    (customer_id, order_date, product_name, product_type, inventory_id, customer_approval,
+                     quantity, unit_price, specifications,
                      order_total, downpayment, delivery_method, status,
                      subtotal_before_tax_snapshot, tax_name_snapshot, tax_rate_snapshot,
                      tax_amount_snapshot, tax_calculation_mode_snapshot)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $data['customer_id'], $data['order_date'], $data['product_name'],
-                $data['quantity'], $data['specifications'],
+                $data['product_type'], $data['inventory_id'],
+                $data['product_type'] === 'Ready-Made' ? 'Pending' : null,
+                $pricing['quantity'], $pricing['unit_price'], $data['specifications'],
                 $data['order_total'], $data['downpayment'],
                 $data['delivery_method'], $data['status'],
                 $data['subtotal_before_tax_snapshot'], $data['tax_name_snapshot'],
@@ -163,10 +258,23 @@ class Orders extends Model
 
     public function update($id, $data): array
     {
+        if (($data['unit_price'] ?? null) !== null) {
+            $pricing = self::calculateGrossTotalFromUnitPrice(
+                (string) $data['unit_price'],
+                (string) ($data['quantity'] ?? '')
+            );
+            if ($pricing === null
+                || self::amountToCents((string) ($data['order_total'] ?? '')) !== self::amountToCents($pricing['order_total'])) {
+                return ['success' => false, 'status' => 422, 'message' => 'The Unit Price and quantity do not match the Order Total.'];
+            }
+            $data['unit_price'] = $pricing['unit_price'];
+            $data['quantity'] = $pricing['quantity'];
+        }
         try {
             $this->db->beginTransaction();
             $lock = $this->db->prepare(
-                'SELECT order_total, downpayment
+                'SELECT order_total, downpayment, product_name, specifications, quantity, unit_price,
+                        product_type, inventory_id, customer_approval, status
                  FROM orders WHERE order_id = ? FOR UPDATE'
             );
             $lock->execute([$id]);
@@ -174,6 +282,30 @@ class Orders extends Model
             if (!$current) {
                 $this->db->rollBack();
                 return ['success' => false, 'status' => 404, 'message' => 'Order not found.'];
+            }
+            if ($current->unit_price === null) {
+                // Never infer or backfill a historical Unit Price during edits.
+                if (($data['unit_price'] ?? null) !== null) {
+                    $this->db->rollBack();
+                    return ['success' => false, 'status' => 422, 'message' => 'A historical Order without a recorded Unit Price cannot be converted during editing.'];
+                }
+                $data['unit_price'] = null;
+            } elseif (($data['unit_price'] ?? null) === null) {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 422, 'message' => 'Unit Price is required for this Order.'];
+            }
+            if (!self::validProductSelection($data, true)
+                || (($data['product_type'] ?? null) === null
+                    && ($current->product_type !== null || $current->inventory_id !== null))) {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 422, 'message' => 'The product type and Inventory item selection are inconsistent.'];
+            }
+
+            $linkedJob = $this->db->prepare('SELECT job_order_id FROM job_orders WHERE order_id = ? LIMIT 1 FOR UPDATE');
+            $linkedJob->execute([$id]);
+            if (($data['product_type'] ?? null) === 'Ready-Made' && $linkedJob->fetch()) {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'An Order with an existing Job Order cannot be changed to Ready-Made.'];
             }
 
             $currentDownpayment = self::amountToCents((string) $current->downpayment);
@@ -204,9 +336,24 @@ class Orders extends Model
                 return ['success' => false, 'status' => 409, 'message' => 'Order Total cannot be changed after payments have been recorded.'];
             }
 
+            $identityChanged = (string) $current->product_name !== (string) $data['product_name']
+                || (string) ($current->product_type ?? '') !== (string) ($data['product_type'] ?? '')
+                || (int) ($current->inventory_id ?? 0) !== (int) ($data['inventory_id'] ?? 0)
+                || (float) $current->quantity !== (float) $data['quantity'];
+            $orderApproval = ($data['product_type'] ?? null) === 'Ready-Made'
+                ? (($current->product_type === 'Ready-Made' && !$identityChanged)
+                    ? $current->customer_approval
+                    : 'Pending')
+                : null;
+            $orderStatus = (string) $data['status'];
+            if (($data['product_type'] ?? null) === 'Ready-Made' && $identityChanged
+                && $current->status === 'Ready for Stock Out') {
+                $orderStatus = 'Pending';
+            }
+
             $stmt = $this->db->prepare(
                 'UPDATE orders SET customer_id = ?, order_date = ?, product_name = ?,
-                    quantity = ?, specifications = ?, order_total = ?, downpayment = ?,
+                    product_type = ?, inventory_id = ?, customer_approval = ?, quantity = ?, unit_price = ?, specifications = ?, order_total = ?, downpayment = ?,
                     delivery_method = ?, status = ?, subtotal_before_tax_snapshot = ?,
                     tax_name_snapshot = ?, tax_rate_snapshot = ?, tax_amount_snapshot = ?,
                     tax_calculation_mode_snapshot = ?
@@ -214,9 +361,10 @@ class Orders extends Model
             );
             $stmt->execute([
                 $data['customer_id'], $data['order_date'], $data['product_name'],
-                $data['quantity'], $data['specifications'],
+                $data['product_type'], $data['inventory_id'],
+                $orderApproval, $data['quantity'], $data['unit_price'] ?? null, $data['specifications'],
                 $data['order_total'], $data['downpayment'],
-                $data['delivery_method'], $data['status'],
+                $data['delivery_method'], $orderStatus,
                 $data['subtotal_before_tax_snapshot'] ?? null,
                 $data['tax_name_snapshot'] ?? null,
                 $data['tax_rate_snapshot'] ?? null,
@@ -289,7 +437,7 @@ class Orders extends Model
         try {
             $this->db->beginTransaction();
             $stmt = $this->db->prepare(
-                'SELECT order_id, order_total, downpayment, status
+                'SELECT order_id, order_total, downpayment, status, product_type, customer_approval
                  FROM orders WHERE order_id = ? FOR UPDATE'
             );
             $stmt->execute([$orderId]);
@@ -337,6 +485,16 @@ class Orders extends Model
                 'Additional payment',
                 $userId
             );
+
+            if ($order->product_type === 'Ready-Made'
+                && $order->customer_approval === 'Approved'
+                && $paidCents + $paymentCents >= $orderTotalCents) {
+                $ready = $this->db->prepare(
+                    "UPDATE orders SET status = 'Ready for Stock Out'
+                     WHERE order_id = ? AND status = 'Pending' AND product_type = 'Ready-Made'"
+                );
+                $ready->execute([$orderId]);
+            }
             $this->db->commit();
 
             return [
@@ -362,6 +520,74 @@ class Orders extends Model
         $summary = $this->paymentSummary($orderId);
         return (float) ($summary['order_total'] ?? 0.0) > 0.0
             && (float) ($summary['payment_remaining'] ?? 0.0) <= 0.0;
+    }
+
+    public function updateReadyMadeCustomerApproval(int $orderId, string $approval): array
+    {
+        if ($orderId < 1 || !in_array($approval, ['Approved', 'Rejected'], true)) {
+            return ['success' => false, 'status' => 422, 'message' => 'Select a valid customer approval decision.'];
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $stmt = $this->db->prepare(
+                'SELECT order_id, product_type, customer_approval, status, order_total, downpayment
+                 FROM orders WHERE order_id = ? FOR UPDATE'
+            );
+            $stmt->execute([$orderId]);
+            $order = $stmt->fetch();
+            if (!$order || $order->product_type !== 'Ready-Made') {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 422, 'message' => 'Customer approval through this action is only available for Ready-Made Orders.'];
+            }
+            $job = $this->db->prepare('SELECT job_order_id FROM job_orders WHERE order_id = ? LIMIT 1 FOR UPDATE');
+            $job->execute([$orderId]);
+            if ($job->fetch()) {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'This Ready-Made Order has an existing Job Order and cannot use the Job-Order-free approval flow.'];
+            }
+            if ($order->customer_approval === $approval) {
+                $this->db->commit();
+                return ['success' => true, 'status' => 200, 'message' => 'Customer approval is already recorded.'];
+            }
+            if ($order->status !== 'Pending' || !in_array($order->customer_approval, [null, 'Pending'], true)) {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'Customer approval can no longer be changed after a decision or release-ready status has been recorded.'];
+            }
+
+            $status = 'Pending';
+            if ($approval === 'Approved') {
+                $total = self::amountToCents((string) $order->order_total);
+                $paid = self::amountToCents((string) $order->downpayment);
+                $additional = $this->db->prepare(
+                    "SELECT COALESCE(SUM(amount), 0) FROM receipt_records
+                     WHERE order_id = ? AND payment_type = 'Additional' AND status = 'Recorded'"
+                );
+                $additional->execute([$orderId]);
+                $paid += self::amountToCents((string) $additional->fetchColumn());
+                if ($total !== null && $total > 0 && $paid >= $total) {
+                    $status = 'Ready for Stock Out';
+                }
+            }
+
+            $update = $this->db->prepare(
+                'UPDATE orders SET customer_approval = ?, status = ?
+                 WHERE order_id = ? AND product_type = \'Ready-Made\' AND status = \'Pending\''
+            );
+            $update->execute([$approval, $status, $orderId]);
+            if ($update->rowCount() !== 1) {
+                $this->db->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'The Order changed before approval could be saved. Refresh and try again.'];
+            }
+            $this->db->commit();
+            return ['success' => true, 'status' => 200, 'message' => $status === 'Ready for Stock Out'
+                ? 'Customer approval recorded. The fully paid Ready-Made Order is ready for release.'
+                : 'Customer approval recorded. The Order will become release-ready after full payment.'];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            error_log('Ready-Made Order approval failed.');
+            return ['success' => false, 'status' => 500, 'message' => 'Customer approval could not be recorded.'];
+        }
     }
 
     private function insertReceipt(
@@ -411,6 +637,25 @@ class Orders extends Model
             'balance' => self::formatCents($remainingCents),
             'payment_status' => $status,
         ];
+    }
+
+    private static function validProductSelection(array $data, bool $allowLegacy): bool
+    {
+        $type = $data['product_type'] ?? null;
+        $inventoryId = $data['inventory_id'] ?? null;
+
+        if ($type === 'Ready-Made') {
+            return is_scalar($inventoryId)
+                && ctype_digit((string) $inventoryId)
+                && (int) $inventoryId > 0;
+        }
+
+        if ($type === 'Custom-Made') {
+            return $inventoryId === null
+                && trim((string) ($data['product_name'] ?? '')) !== '';
+        }
+
+        return $allowLegacy && $type === null && $inventoryId === null;
     }
 
     private static function amountToCents(string $amount): ?int

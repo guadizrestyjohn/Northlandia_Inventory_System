@@ -51,15 +51,26 @@ unset($_SESSION['success'], $_SESSION['error']);
             </a>
         </div>
 
+        <select id="inventory-category-filter" class="form-control form-control-sm d-none" aria-label="Filter inventory by category">
+            <option value="">All Categories</option>
+            <?php foreach ($categories as $category): ?>
+                <option value="<?= htmlspecialchars((string) $category->category_name, ENT_QUOTES, 'UTF-8') ?>">
+                    <?= htmlspecialchars((string) $category->category_name, ENT_QUOTES, 'UTF-8') ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+
         <div class="table-responsive">
             <table id="inventory-table" class="table table-bordered table-hover" data-can-manage="<?= ($canManageInventory ?? false) ? '1' : '0' ?>">
                 <thead>
                     <tr>
-                        <th>Inventory No.</th>
+                        <th>Item Number</th>
                         <th>Item</th>
+                        <th>Item Description</th>
                         <th>Size</th>
                         <th>Category</th>
-                        <th>Quantity</th>
+                        <th>Total Stocks</th>
+                        <th>Stocks</th>
                         <th>Unit</th>
                         <th>Status</th>
                         <?php if ($canManageInventory ?? false): ?><th>Action</th><?php endif; ?>
@@ -95,8 +106,16 @@ unset($_SESSION['success'], $_SESSION['error']);
                 </div>
 
                 <div class="form-group">
-                    <label for="inventory-size">Size</label>
-                    <input class="form-control" id="inventory-size" name="size">
+                    <label for="inventory-item-description">Item Description (Optional)</label>
+                    <input class="form-control" id="inventory-item-description" name="item_description" maxlength="255" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Dimensions (cm)</label>
+                    <div class="form-row">
+                        <div class="col"><input class="form-control" id="inventory-width" name="width_cm" type="number" min="0.01" step="0.01" placeholder="Width"></div>
+                        <div class="col"><input class="form-control" id="inventory-height" name="height_cm" type="number" min="0.01" step="0.01" placeholder="Height"></div>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -111,14 +130,9 @@ unset($_SESSION['success'], $_SESSION['error']);
                     </select>
                 </div>
 
-                <div class="form-group d-none" id="inventory-quantity-group">
-                    <label for="inventory-quantity">Current Quantity</label>
-                    <input class="form-control" id="inventory-quantity" type="number" readonly>
-                </div>
-
                 <div class="form-group">
                     <label for="inventory-unit">Unit</label>
-                    <input class="form-control" id="inventory-unit" name="unit" required>
+                    <input class="form-control" id="inventory-unit" name="unit" value="pcs" required>
                 </div>
 
                 <small class="form-text text-muted" id="inventory-quantity-help">
